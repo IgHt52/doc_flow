@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DocFlow — документооборот</title>
+<style>
+  :root{
+    --primary:#206bc4; --primary-dark:#1a56a0; --primary-light:#e7f1fb;
+    --bg:#f5f7fb; --card:#ffffff; --border:#e3e6ea; --border-dark:#d5dae0;
+    --text:#1f2a3a; --muted:#6b7686; --sidebar:#1e2a3a;
+    --gray:#8b95a3; --blue:#206bc4; --amber:#e8a013; --violet:#7c5cd6; --green:#2fa84f; --red:#d64545;
+    --gray-bg:#eef0f3; --blue-bg:#e7f1fb; --amber-bg:#fdf3df; --violet-bg:#f0eafb; --green-bg:#e7f6ec; --red-bg:#fbeaea;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI",-apple-system,Arial,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  .app{display:flex;min-height:100vh}
+
+  .sidebar{width:232px;background:var(--sidebar);color:#c6cfdb;display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh}
+  .logo{display:flex;align-items:center;gap:10px;padding:18px 20px;color:#fff;border-bottom:1px solid rgba(255,255,255,.08)}
+  .logo .mark{width:32px;height:32px;border-radius:7px;background:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff}
+  .logo b{font-size:16px;font-weight:600}
+  .logo small{display:block;font-size:10.5px;color:#8fa0b5;font-weight:400}
+  .nav{padding:12px 10px;flex:1}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:7px;cursor:pointer;margin-bottom:3px;font-size:13.5px;user-select:none}
+  .nav-item:hover{background:rgba(255,255,255,.07);color:#fff}
+  .nav-item.active{background:var(--primary);color:#fff;font-weight:600}
+  .sidebar-foot{padding:14px 20px;font-size:11px;color:#71829a;border-top:1px solid rgba(255,255,255,.08);line-height:1.6}
+
+  .main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .topbar{height:56px;background:var(--card);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:10}
+  .topbar h1{font-size:16px;font-weight:600}
+  .topbar .crumbs{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .user-chip{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted)}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--primary-light);color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px}
+  .content{padding:22px 24px 40px}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+  .card h2{font-size:14.5px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .row{display:flex;gap:12px;align-items:center}
+  .row.between{justify-content:space-between}
+  .spacer{flex:1}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 26px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 26px}
+
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:7px;border:1px solid var(--border-dark);background:#fff;color:var(--text);font-size:13px;font-family:inherit;cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:#b9c1cb;background:#fafbfc}
+  .btn-primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+  .btn-primary:hover{background:var(--primary-dark);border-color:var(--primary-dark)}
+  .btn-sm{padding:4px 10px;font-size:12px;border-radius:6px}
+  .btn-ghost{border-color:transparent;background:transparent;color:var(--primary)}
+  .btn-ghost:hover{background:var(--primary-light)}
+  .btn-danger{color:var(--red)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+
+  table.table{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.table th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;padding:9px 12px;border-bottom:1px solid var(--border);background:#fafbfd}
+  table.table td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  table.table tr:last-child td{border-bottom:none}
+  table.table tbody tr.clickable{cursor:pointer}
+  table.table tbody tr.clickable:hover{background:#f4f8fd}
+  .sub{color:var(--muted);font-size:12px}
+  .name-link{color:var(--primary);font-weight:600;cursor:pointer}
+  .name-link:hover{text-decoration:underline}
+
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap}
+  .badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+  .b-gray{background:var(--gray-bg);color:var(--gray)}
+  .b-blue{background:var(--blue-bg);color:var(--blue)}
+  .b-amber{background:var(--amber-bg);color:#a5730c}
+  .b-violet{background:var(--violet-bg);color:var(--violet)}
+  .b-green{background:var(--green-bg);color:var(--green)}
+  .chip{display:inline-block;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600;background:var(--primary-light);color:var(--primary)}
+  .chip.auto{background:#eef7ee;color:#3d8b52}
+  .chip.soon{background:var(--gray-bg);color:var(--gray);font-weight:500}
+
+  .field{margin-bottom:13px}
+  .field label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:5px}
+  .field input,.field select,.field textarea{width:100%;padding:8px 11px;border:1px solid var(--border-dark);border-radius:7px;font-size:13.5px;font-family:inherit;color:var(--text);background:#fff}
+  .field textarea{resize:vertical}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(32,107,196,.12)}
+  .field input[readonly]{background:#f6f7f9;color:var(--muted)}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:4px}
+  fieldset.group{border:1px solid var(--border);border-radius:9px;padding:14px 16px 4px;margin-bottom:16px}
+  fieldset.group legend{font-size:12px;font-weight:700;color:var(--muted);padding:0 8px;text-transform:uppercase;letter-spacing:.4px}
+
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:18px;flex-wrap:wrap}
+  .tab{padding:9px 16px;font-size:13.5px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;font-weight:500;user-select:none}
+  .tab:hover{color:var(--text)}
+  .tab.active{color:var(--primary);border-bottom-color:var(--primary);font-weight:600}
+  .tabpane{display:none}
+  .tabpane.active{display:block}
+
+  .kv{display:grid;grid-template-columns:250px 1fr;gap:0;font-size:13.5px}
+  .kv .k{padding:8px 0;color:var(--muted);border-bottom:1px solid var(--border)}
+  .kv .v{padding:8px 0;border-bottom:1px solid var(--border);font-weight:500}
+
+  .matrix td.cell{text-align:center;padding:8px 6px}
+  .matrix th.dim{opacity:.5}
+  .matrix td.dim{opacity:.45;color:var(--gray);font-size:13px;text-align:center;padding:8px 6px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--muted);align-items:center}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+  .stepper{display:flex;align-items:center;margin-bottom:22px}
+  .step{display:flex;align-items:center;gap:9px}
+  .step .num{width:28px;height:28px;border-radius:50%;background:var(--gray-bg);color:var(--muted);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+  .step .lbl{font-size:13px;color:var(--muted);font-weight:500}
+  .step.active .num{background:var(--primary);color:#fff}
+  .step.active .lbl{color:var(--text);font-weight:600}
+  .step-line{width:64px;height:2px;background:var(--border-dark);margin:0 14px}
+  .checkline{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;font-size:13.5px}
+  .checkline.disabled{opacity:.55}
+  .checkline input[type=checkbox]{width:16px;height:16px;accent-color:var(--primary)}
+  .success-box{background:var(--green-bg);border:1px solid #bfe3c9;border-radius:9px;padding:14px 16px;font-size:13.5px;color:#256b38;margin-bottom:10px}
+
+  .repo{display:flex;gap:16px;align-items:flex-start}
+  .tree{width:320px;flex-shrink:0;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;font-size:13px}
+  .t-item{padding:6px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .t-item:hover{background:#f2f5f9}
+  .t-item.active{background:var(--primary-light);color:var(--primary);font-weight:700}
+  .indent1{padding-left:24px}
+  .repo-files{flex:1;min-width:0}
+
+  .screen{display:none}
+  .screen.active{display:block}
+  .page-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;gap:16px;flex-wrap:wrap}
+  .page-head h2{font-size:19px;font-weight:700}
+  .page-head .sub{margin-top:4px}
+  .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  .search input{padding:8px 12px;border:1px solid var(--border-dark);border-radius:7px;font-size:13px;width:280px;font-family:inherit}
+  select.mini{padding:7px 10px;border:1px solid var(--border-dark);border-radius:7px;font-size:13px;background:#fff;font-family:inherit;color:var(--text)}
+  .back-link{color:var(--primary);cursor:pointer;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:5px;margin-bottom:12px}
+  .back-link:hover{text-decoration:underline}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;z-index:100;overflow:auto;padding:40px 16px}
+  .modal{background:#fff;border-radius:12px;width:640px;max-width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  .modal.wide{width:860px}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)}
+  .modal-head h3{font-size:15.5px;font-weight:700}
+  .modal-x{border:none;background:none;font-size:16px;cursor:pointer;color:var(--muted);padding:4px 8px;border-radius:6px}
+  .modal-x:hover{background:var(--gray-bg)}
+  .modal-body{padding:18px 20px 6px;max-height:66vh;overflow:auto}
+  .modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
+  .form-grid .wide{grid-column:1/-1}
+
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1f2a3a;color:#fff;padding:11px 20px;border-radius:9px;font-size:13.5px;opacity:0;transition:.25s;z-index:200;max-width:80%;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.err{background:#b23636}
+
+  .fatal{display:none;background:var(--red-bg);border:1px solid #e5b8b8;color:#8f2f2f;padding:14px 18px;border-radius:9px;margin-bottom:16px;font-size:13.5px}
+  .empty{padding:30px;text-align:center;color:var(--muted);font-size:13.5px}
+  code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:12px}
+  .status-select{padding:5px 8px;border:1px solid var(--border-dark);border-radius:6px;font-size:12.5px;background:#fff;font-family:inherit}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="mark">D</div>
+      <div><b>DocFlow</b><small>документооборот</small></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-item active" id="nav-clients" onclick="navTo('clients')">👥&nbsp; Клиенты</div>
+      <div class="nav-item" id="nav-matrix" onclick="navTo('matrix')">▦&nbsp; Общий документооборот</div>
+      <div class="nav-item" id="nav-workpapers" onclick="navTo('workpapers')">🗒&nbsp; Рабочие документы</div>
+      <div class="nav-item" id="nav-wizard" onclick="navTo('wizard')">🗎&nbsp; Создать документ</div>
+      <div class="nav-item" id="nav-repo" onclick="navTo('repo')">🗀&nbsp; Репозиторий</div>
+      <div class="nav-item" id="nav-settings" onclick="navTo('settings')">⚙&nbsp; Настройки</div>
+    </nav>
+    <div class="sidebar-foot" id="sidebarFoot">DocFlow</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="topbar-title">Клиенты</h1>
+        <div class="crumbs" id="topbar-crumbs">Главная · Клиенты</div>
+      </div>
+      <div class="user-chip">
+        <div class="avatar">АД</div>
+        <div>Администратор<br><span style="font-size:11px" id="topOrg">ООО «САИ»</span></div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="fatal" id="fatal"><b>Ошибка запуска:</b> <span id="fatalText"></span></div>
+
+      <!-- ЭКРАН: КЛИЕНТЫ -->
+      <section class="screen active" id="screen-clients">
+        <div class="page-head">
+          <div><h2>Клиенты</h2><div class="sub" id="clientsCount"></div></div>
+          <button class="btn btn-primary" onclick="clientForm()">＋ Новый клиент</button>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="toolbar" style="padding:14px 16px 10px">
+            <div class="search"><input type="text" id="clientSearch" placeholder="Поиск: название, ИНН, контакт…" oninput="renderClientsTable()"></div>
+          </div>
+          <div style="overflow-x:auto">
+          <table class="table">
+            <thead><tr><th>Наименование</th><th>ИНН</th><th>Вид работ</th><th>Контактное лицо</th><th>Телефон</th><th>Почта</th><th>Договор</th></tr></thead>
+            <tbody id="clientsBody"></tbody>
+          </table>
+          </div>
+        </div>
+        <div class="sub">Клик по строке — карточка клиента и статусы его документооборота.</div>
+      </section>
+
+      <!-- ЭКРАН: КАРТОЧКА КЛИЕНТА -->
+      <section class="screen" id="screen-client">
+        <div class="back-link" onclick="navTo('clients')">← Назад к списку клиентов</div>
+        <div class="page-head">
+          <div>
+            <h2 id="clientTitle"></h2>
+            <div class="sub" id="clientSubtitle"></div>
+          </div>
+          <div class="row">
+            <button class="btn" onclick="clientForm(state.client.client.id)">✎ Редактировать</button>
+            <button class="btn" onclick="openClientFolder()">🗀 Открыть папку</button>
+            <button class="btn btn-primary" onclick="wizardFor(state.client.client.id)">＋ Создать документ</button>
+          </div>
+        </div>
+        <div class="tabs" id="clientTabs">
+          <div class="tab active" data-tab="rekv" onclick="clientTab('rekv')">Реквизиты</div>
+          <div class="tab" data-tab="bank" onclick="clientTab('bank')">Банковские</div>
+          <div class="tab" data-tab="contacts" onclick="clientTab('contacts')">Контакты</div>
+          <div class="tab" data-tab="contracts" onclick="clientTab('contracts')">Договоры</div>
+          <div class="tab" data-tab="docs" onclick="clientTab('docs')">Документооборот</div>
+        </div>
+        <div class="tabpane active" id="tab-rekv"><div class="card" id="rekvCard"></div></div>
+        <div class="tabpane" id="tab-bank"><div class="card" id="bankCard"></div></div>
+        <div class="tabpane" id="tab-contacts"><div class="card" style="padding:0" id="contactsCard"></div></div>
+        <div class="tabpane" id="tab-contracts"><div class="card" style="padding:0" id="contractsCard"></div></div>
+        <div class="tabpane" id="tab-docs"><div id="docsWrap"></div></div>
+      </section>
+
+      <!-- ЭКРАН: МАТРИЦА -->
+      <section class="screen" id="screen-matrix">
+        <div class="page-head">
+          <div><h2>Общий документооборот</h2><div class="sub">Строки — клиенты и договоры, столбцы — типы документов, ячейки — статус</div></div>
+          <div class="row">
+            <select class="mini" id="matrixYear" onchange="loadMatrix(this.value)"></select>
+          </div>
+        </div>
+        <div class="card" style="padding:0;overflow-x:auto"><table class="table matrix" id="matrixTable"></table></div>
+        <div class="legend">
+          <span><i class="dot" style="background:var(--gray)"></i> не создан</span>
+          <span><i class="dot" style="background:var(--blue)"></i> готов</span>
+          <span><i class="dot" style="background:var(--amber)"></i> подписан</span>
+          <span><i class="dot" style="background:var(--violet)"></i> отправлен</span>
+          <span><i class="dot" style="background:var(--green)"></i> получен</span>
+          <span style="margin-left:auto">Приглушённые столбцы — шаблоны ещё не загружены (подключаются в «Настройках»).</span>
+        </div>
+      </section>
+
+      <!-- ЭКРАН: РАБОЧИЕ ДОКУМЕНТЫ -->
+      <section class="screen" id="screen-workpapers">
+        <div class="page-head">
+          <div><h2>Рабочие документы</h2><div class="sub">Готовность рабочих документов по договорам: кто готовит, кто контролирует, плановый срок</div></div>
+          <button class="btn btn-primary" onclick="wpForm()">＋ Добавить рабочий документ</button>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="toolbar" style="padding:14px 16px 10px">
+            <select class="mini" id="wpFilterContract" onchange="renderWorkpapers()"><option value="">Все договоры</option></select>
+            <select class="mini" id="wpFilterStatus" onchange="renderWorkpapers()"></select>
+            <div class="search"><input type="text" id="wpSearch" placeholder="Поиск: документ, ассистент, аудитор…" oninput="renderWorkpapers()"></div>
+            <div class="spacer"></div>
+            <span id="wpSummary" class="sub"></span>
+          </div>
+          <div style="overflow-x:auto">
+          <table class="table">
+            <thead><tr><th>Клиент / договор</th><th>Рабочий документ (раздел)</th><th>Готовит (ассистент)</th><th>Контролирует (аудитор)</th><th>Плановый срок</th><th style="width:220px">Статус</th><th style="width:80px"></th></tr></thead>
+            <tbody id="wpBody"></tbody>
+          </table>
+          </div>
+        </div>
+        <div class="sub">Просроченные сроки (статус не «принят») подсвечиваются красным.</div>
+      </section>
+
+      <!-- ЭКРАН: МАСТЕР -->
+      <section class="screen" id="screen-wizard">
+        <div class="page-head">
+          <div><h2>Создание документа из шаблона</h2><div class="sub">Клиент и договор → параметры → файлы в папке клиента</div></div>
+        </div>
+        <div class="stepper">
+          <div class="step active" id="wzStep1"><div class="num">1</div><div class="lbl">Клиент и договор</div></div>
+          <div class="step-line"></div>
+          <div class="step" id="wzStep2"><div class="num">2</div><div class="lbl">Данные и генерация</div></div>
+          <div class="step-line"></div>
+          <div class="step" id="wzStep3"><div class="num">3</div><div class="lbl">Результат</div></div>
+        </div>
+        <div class="row" style="align-items:flex-start">
+          <div style="flex:1;min-width:0">
+            <div class="card">
+              <h2>1 · Клиент, договор и состав комплекта</h2>
+              <div class="grid2">
+                <div class="field"><label>Клиент</label><select id="wzClient" onchange="wzClientChanged()"><option value="">— выберите клиента —</option></select></div>
+                <div class="field"><label>Договор</label><select id="wzContract" onchange="wzContractChanged()"><option value="">— сначала выберите клиента —</option></select></div>
+              </div>
+              <label style="font-size:12px;color:var(--muted);font-weight:600;display:block;margin:6px 0 8px">Документы для создания</label>
+              <div id="wzTypes"></div>
+            </div>
+            <div class="card" id="wzParamsCard" style="display:none">
+              <h2>2 · Параметры договора <span class="chip auto">подставляются в шаблон</span></h2>
+              <form id="wzParamsForm"></form>
+              <div class="row" style="margin-top:8px">
+                <div class="spacer"></div>
+                <button class="btn btn-primary" onclick="wzGenerate()">🗎 Сгенерировать</button>
+              </div>
+            </div>
+          </div>
+          <div style="width:340px;flex-shrink:0">
+            <div class="card">
+              <h2>Подставляется автоматически</h2>
+              <div id="wzAuto" class="kv" style="grid-template-columns:110px 1fr"></div>
+            </div>
+            <div class="card" id="wzResultCard" style="display:none">
+              <h2>3 · Результат</h2>
+              <div id="wzResult"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ЭКРАН: РЕПОЗИТОРИЙ -->
+      <section class="screen" id="screen-repo">
+        <div class="page-head">
+          <div><h2>Репозиторий</h2><div class="sub" id="repoRoot"></div></div>
+          <button class="btn" onclick="repoOpen('')">🗗 Открыть корень в проводнике</button>
+        </div>
+        <div class="repo">
+          <div class="tree" id="repoTree"></div>
+          <div class="repo-files"><div class="card" style="padding:0" id="repoFiles"></div></div>
+        </div>
+      </section>
+
+      <!-- ЭКРАН: НАСТРОЙКИ -->
+      <section class="screen" id="screen-settings">
+        <div class="page-head">
+          <div><h2>Настройки</h2><div class="sub">Реквизиты Исполнителя · шаблоны · нумерация · обслуживание</div></div>
+        </div>
+        <form id="settingsForm">
+          <div class="card">
+            <h2>Реквизиты Исполнителя (подставляются во все шаблоны)</h2>
+            <div class="form-grid" id="execFields"></div>
+          </div>
+          <div class="grid2">
+            <div class="card">
+              <h2>Нумерация договоров</h2>
+              <div class="field"><label>Маска номера</label><input name="num_mask"><div class="hint">{seq} — порядковый номер, {yy} — две последние цифры года. Пример: 193/26-А</div></div>
+              <div class="field"><label>Следующий номер (seq)</label><input name="seq_next" type="number"></div>
+              <div class="field"><label>Город по умолчанию</label><input name="city_default"></div>
+            </div>
+            <div class="card">
+              <h2>Обслуживание</h2>
+              <div class="kv" id="svcInfo"></div>
+              <div class="row" style="margin-top:12px">
+                <button type="button" class="btn" onclick="backupNow()">🗐 Сделать бэкап сейчас</button>
+              </div>
+            </div>
+          </div>
+        </form>
+        <div class="row" style="margin:-6px 0 16px">
+          <div class="spacer"></div>
+          <button class="btn btn-primary" onclick="saveSettings()">💾 Сохранить настройки</button>
+        </div>
+        <div class="card" style="padding:0">
+          <div class="row between" style="padding:14px 16px">
+            <h2 style="margin:0">Шаблоны документов</h2>
+            <div class="row">
+              <button class="btn btn-sm" onclick="templatesOpenFolder()">🗗 Папка шаблонов</button>
+              <button class="btn btn-sm btn-primary" onclick="doctypeForm()">＋ Добавить тип документа</button>
+            </div>
+          </div>
+          <table class="table">
+            <thead><tr><th>Тип документа</th><th>Код</th><th>Файл шаблона</th><th>Маска имени файла</th><th>Активен</th><th style="width:190px">Действия</th></tr></thead>
+            <tbody id="doctypesBody"></tbody>
+          </table>
+          <div class="hint" style="padding:10px 16px 14px">Шаблон — обычный Word-файл с плейсхолдерами <code>{{ client.name_full }}</code>, <code>{{ contract.number }}</code> и т.п. После загрузки шаблона и включения активности тип появляется в мастере и в матрице.</div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+/* ================= УТИЛИТЫ ================= */
+let api = null;
+const state = {
+  info: null, settings: {}, clients: [], client: null,
+  docContractId: null, matrixYear: null, doctypes: [],
+  wiz: { clientId: null, contractId: null, client: null, contracts: [] },
+  wp: { rows: [], contracts: [], people: { assistants: [], reviewers: [] } },
+};
+const STATUSES = ['готов', 'подписан', 'отправлен', 'получен'];
+const STATUS_CLS = { 'готов': 'b-blue', 'подписан': 'b-amber', 'отправлен': 'b-violet', 'получен': 'b-green' };
+const WP_STATUSES = ['не начат', 'в работе', 'на проверке', 'доработка', 'принят'];
+const WP_CLS = { 'не начат': 'b-gray', 'в работе': 'b-blue', 'на проверке': 'b-amber', 'доработка': 'b-red', 'принят': 'b-green' };
+const CONTACT_ROLES = ['Руководитель', 'Гл. бухгалтер', 'Контактное лицо', 'Иное'];
+const WORK_TYPES = ['Аудит', 'Консультации', 'Бухгалтерское обслуживание', 'Прочее'];
+const CONTRACT_STATUSES = ['действует', 'завершён', 'расторгнут'];
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function badge(status) {
+  const cls = STATUS_CLS[status] || 'b-gray';
+  return '<span class="badge ' + cls + '">' + esc(status || 'не создан') + '</span>';
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? (m[3] + '.' + m[2] + '.' + m[1]) : esc(iso);
+}
+function fmtMoney(n) { return Number(n || 0).toLocaleString('ru-RU'); }
+function toast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(t._tm);
+  t._tm = setTimeout(() => { t.className = 'toast'; }, 3800);
+}
+async function call(name, ...args) {
+  const r = await api[name](...args);
+  if (r && r.error) throw new Error(r.error);
+  return r;
+}
+function kvRow(k, v) { return '<div class="k">' + esc(k) + '</div><div class="v">' + (v || '<span class="sub">—</span>') + '</div>'; }
+
+/* ============ МОДАЛКИ И ФОРМЫ ============ */
+function fieldHtml(f) {
+  if (f.type === 'hidden') return '<input type="hidden" name="' + f.name + '" value="' + esc(f.value || '') + '">';
+  const v = f.value == null ? '' : f.value;
+  let inp;
+  if (f.type === 'select') {
+    inp = '<select name="' + f.name + '">' + (f.options || []).map(o => {
+      const ov = typeof o === 'string' ? o : o.v, ol = typeof o === 'string' ? o : o.l;
+      return '<option value="' + esc(ov) + '"' + (String(v) === String(ov) ? ' selected' : '') + '>' + esc(ol) + '</option>';
+    }).join('') + '</select>';
+  } else if (f.type === 'textarea') {
+    inp = '<textarea name="' + f.name + '" rows="' + (f.rows || 2) + '">' + esc(v) + '</textarea>';
+  } else {
+    inp = '<input name="' + f.name + '" type="' + (f.type || 'text') + '" value="' + esc(v) + '"' +
+      (f.readonly ? ' readonly' : '') + (f.placeholder ? ' placeholder="' + esc(f.placeholder) + '"' : '') + '>';
+  }
+  return '<div class="field' + (f.wide ? ' wide' : '') + '"><label>' + esc(f.label) +
+    (f.tag ? ' <span class="chip' + (f.tagCls ? ' ' + f.tagCls : '') + '">' + esc(f.tag) + '</span>' : '') +
+    '</label>' + inp + (f.hint ? '<div class="hint">' + esc(f.hint) + '</div>' : '') + '</div>';
+}
+function fieldsHtml(list) { return list.map(fieldHtml).join(''); }
+function collectForm(form) {
+  const o = {};
+  new FormData(form).forEach((v, k) => { o[k] = v; });
+  form.querySelectorAll('input[type=checkbox][name]').forEach(cb => { o[cb.name] = cb.checked ? 1 : 0; });
+  return o;
+}
+function openModal(title, bodyHtml, opts) {
+  opts = opts || {};
+  closeModal();
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay'; ov.id = 'modalOverlay';
+  ov.innerHTML =
+    '<div class="modal' + (opts.wide ? ' wide' : '') + '">' +
+    '<div class="modal-head"><h3>' + esc(title) + '</h3><button class="modal-x" onclick="closeModal()">✕</button></div>' +
+    '<form id="modalForm" class="modal-body" onsubmit="return false">' + bodyHtml + '</form>' +
+    '<div class="modal-foot">' +
+    (opts.hideSave ? '' : '<button class="btn btn-primary" id="modalSave">' + esc(opts.saveLabel || 'Сохранить') + '</button>') +
+    '<button class="btn" onclick="closeModal()">' + esc(opts.cancelLabel || 'Отмена') + '</button>' +
+    '</div></div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('mousedown', e => { if (e.target === ov) closeModal(); });
+  if (!opts.hideSave) {
+    document.getElementById('modalSave').onclick = async () => {
+      const vals = collectForm(document.getElementById('modalForm'));
+      try {
+        const r = opts.onSave ? await opts.onSave(vals) : true;
+        if (r !== false) closeModal();
+      } catch (err) { toast(err.message || String(err), true); }
+    };
+  }
+  if (opts.onReady) opts.onReady(document.getElementById('modalForm'), ov);
+  return ov;
+}
+function closeModal() { const ov = document.getElementById('modalOverlay'); if (ov) ov.remove(); }
+
+/* Автозаполнение род. падежа и сокращения ФИО */
+function bindFioAutofill(form, fioName, genName, shortName) {
+  const fio = form.querySelector('[name=' + fioName + ']');
+  const gen = form.querySelector('[name=' + genName + ']');
+  const sh = shortName ? form.querySelector('[name=' + shortName + ']') : null;
+  if (!fio || !gen) return;
+  [gen, sh].forEach(el => { if (el) el.addEventListener('input', () => { el.dataset.auto = '0'; }); });
+  fio.addEventListener('blur', async () => {
+    const v = (fio.value || '').trim();
+    if (!v) return;
+    try {
+      const r = await call('inflect_fio', v);
+      if (gen && (gen.dataset.auto === '1' || !gen.value.trim())) { gen.value = r.gen; gen.dataset.auto = '1'; }
+      if (sh && (sh.dataset.auto === '1' || !sh.value.trim())) { sh.value = r.short; sh.dataset.auto = '1'; }
+    } catch (e) { /* тихо */ }
+  });
+}
+
+/* Автозаполнение срока оригиналов отчётности (5 раб. дней до АЗ) */
+function bindOriginalsAuto(form) {
+  const od = form.querySelector('[name=opinion_deadline]');
+  const orf = form.querySelector('[name=originals_deadline]');
+  if (!od || !orf) return;
+  od.addEventListener('change', async () => {
+    if (od.value && !orf.value) {
+      try { orf.value = await call('calc_originals_deadline', od.value); } catch (e) { /* тихо */ }
+    }
+  });
+}
+
+/* ============ НАВИГАЦИЯ ============ */
+const TITLES = {
+  clients: ['Клиенты', 'Главная · Клиенты'],
+  client: ['Карточка клиента', 'Главная · Клиенты · карточка'],
+  matrix: ['Общий документооборот', 'Главная · Матрица статусов'],
+  workpapers: ['Рабочие документы', 'Главная · Готовность рабочих документов'],
+  wizard: ['Создать документ', 'Главная · Мастер создания'],
+  repo: ['Репозиторий', 'Главная · Файлы клиентов'],
+  settings: ['Настройки', 'Главная · Администрирование'],
+};
+async function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const navId = id === 'client' ? 'nav-clients' : 'nav-' + id;
+  const nav = document.getElementById(navId);
+  if (nav) nav.classList.add('active');
+  const t = TITLES[id] || ['', ''];
+  document.getElementById('topbar-title').textContent = t[0];
+  document.getElementById('topbar-crumbs').textContent = t[1];
+  window.scrollTo(0, 0);
+  try {
+    if (id === 'clients') await loadClients();
+    if (id === 'matrix') await loadMatrix(state.matrixYear || null);
+    if (id === 'workpapers') await loadWorkpapers();
+    if (id === 'wizard') await loadWizard(state.wiz.clientId);
+    if (id === 'repo') await loadRepo();
+    if (id === 'settings') await loadSettings();
+  } catch (e) { toast(e.message || String(e), true); }
+}
+function navTo(id) { showScreen(id); }
+
+/* ============ КЛИЕНТЫ ============ */
+async function loadClients() {
+  state.clients = await call('clients_list');
+  document.getElementById('clientsCount').textContent = 'Всего: ' + state.clients.length;
+  renderClientsTable();
+}
+function renderClientsTable() {
+  const q = (document.getElementById('clientSearch').value || '').toLowerCase().trim();
+  const rows = state.clients.filter(c =>
+    !q || [c.name_short, c.name_full, c.inn, c.contact_fio, c.phone, c.email, c.work_type]
+      .some(v => String(v || '').toLowerCase().includes(q)));
+  const tb = document.getElementById('clientsBody');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="7"><div class="empty">Клиентов пока нет — нажмите «＋ Новый клиент».<br>При создании клиента в репозитории автоматически появится его папка.</div></td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(c =>
+    '<tr class="clickable" onclick="openClient(' + c.id + ')">' +
+    '<td><span class="name-link">' + esc(c.name_short) + '</span><div class="sub">' + esc(c.name_full !== c.name_short ? c.name_full : '') + '</div></td>' +
+    '<td>' + esc(c.inn) + '</td>' +
+    '<td>' + (c.work_type ? '<span class="chip">' + esc(c.work_type) + '</span>' : '<span class="sub">—</span>') + '</td>' +
+    '<td>' + esc(c.contact_fio) + (c.contact_role ? '<div class="sub">' + esc(c.contact_role) + '</div>' : '') + '</td>' +
+    '<td>' + esc(c.phone) + '</td><td>' + esc(c.email) + '</td>' +
+    '<td>' + badge(c.badge.status === 'нет договора' ? 'не создан' : c.badge.status) +
+    (c.badge.status === 'нет договора' ? '<div class="sub">договор не заведён</div>' : '') + '</td>' +
+    '</tr>').join('');
+}
+
+function clientFields(c) {
+  c = c || {};
+  const g = k => c[k] || '';
+  return [
+    { name: 'id', type: 'hidden', value: c.id || '' },
+    { name: 'name_full', label: 'Полное наименование *', wide: true, value: g('name_full'), placeholder: 'Общество с ограниченной ответственностью «…»' },
+    { name: 'name_short', label: 'Краткое наименование', wide: true, value: g('name_short'), placeholder: 'ООО «…»' },
+    { name: 'inn', label: 'ИНН', value: g('inn') },
+    { name: 'kpp', label: 'КПП', value: g('kpp') },
+    { name: 'ogrn', label: 'ОГРН', value: g('ogrn') },
+    { name: 'legal_address', label: 'Юридический адрес', value: g('legal_address') },
+    { name: 'actual_address', label: 'Фактический адрес', value: g('actual_address') },
+    { name: 'email', label: 'E-mail', value: g('email') },
+    { name: 'phone', label: 'Телефон', value: g('phone') },
+    { name: '_grp_bank', label: '', type: 'hidden', value: '' },
+    { name: 'bank_account', label: 'Расчётный счёт', value: g('bank_account') },
+    { name: 'corr_account', label: 'Корр. счёт', value: g('corr_account') },
+    { name: 'bank_name', label: 'Банк', wide: true, value: g('bank_name') },
+    { name: 'bik', label: 'БИК', value: g('bik') },
+    { name: '_grp_dir', type: 'hidden', value: '' },
+    { name: 'director_position', label: 'Должность руководителя', value: g('director_position') || 'Генеральный директор' },
+    { name: 'director_position_gen', label: 'Должность (в лице …)', value: g('director_position_gen') || 'Генерального директора', hint: 'Родительный падеж — для преамбулы договора' },
+    { name: 'director_fio', label: 'ФИО руководителя', value: g('director_fio'), hint: 'Введите полностью — следующие два поля заполнятся автоматически' },
+    { name: 'director_fio_gen', label: 'ФИО (в лице …)', value: g('director_fio_gen'), hint: 'Родительный падеж — заполняется автоматически, можно поправить' },
+    { name: 'director_fio_short', label: 'ФИО сокращённо', value: g('director_fio_short'), hint: 'Для подписи (И.Н. Колесников) — заполняется автоматически' },
+    { name: 'director_basis', label: 'Действует на основании', value: g('director_basis') || 'Устава' },
+    { name: 'folder', label: 'Папка в репозитории', wide: true, value: g('folder'), hint: 'Если пусто — будет создана по названию' },
+    { name: 'note', label: 'Примечание', type: 'textarea', wide: true, value: g('note') },
+  ];
+}
+function groupFields(fields) {
+  const groups = { main: [], bank: [], dir: [], other: [] };
+  let cur = 'main';
+  for (const f of fields) {
+    if (f.name === '_grp_bank') { cur = 'bank'; continue; }
+    if (f.name === '_grp_dir') { cur = 'dir'; continue; }
+    if (f.name === 'folder' || f.name === 'note') cur = 'other';
+    groups[cur].push(f);
+  }
+  return '<fieldset class="group"><legend>Компания</legend><div class="form-grid">' + fieldsHtml(groups.main) + '</div></fieldset>' +
+    '<fieldset class="group"><legend>Банковские реквизиты</legend><div class="form-grid">' + fieldsHtml(groups.bank) + '</div></fieldset>' +
+    '<fieldset class="group"><legend>Руководитель (для договоров)</legend><div class="form-grid">' + fieldsHtml(groups.dir) + '</div></fieldset>' +
+    '<fieldset class="group"><legend>Прочее</legend><div class="form-grid">' + fieldsHtml(groups.other) + '</div></fieldset>';
+}
+async function clientForm(cid) {
+  let c = {};
+  if (cid) {
+    const data = await call('client_get', cid);
+    c = data.client;
+  }
+  openModal(cid ? 'Карточка клиента — редактирование' : 'Новый клиент', groupFields(clientFields(c)), {
+    wide: true,
+    onReady: (form) => bindFioAutofill(form, 'director_fio', 'director_fio_gen', 'director_fio_short'),
+    onSave: async (vals) => {
+      const r = await call('client_save', vals);
+      toast('Клиент сохранён. Папка: ' + r.folder);
+      if (cid && state.client && state.client.client.id === cid) await openClient(cid);
+      else await loadClients();
+    }
+  });
+}
+
+async function openClient(cid) {
+  try {
+    state.client = await call('client_get', cid);
+    const c = state.client.client;
+    document.getElementById('clientTitle').innerHTML = esc(c.name_short || c.name_full) +
+      (state.client.contracts.length ? ' <span class="chip">' + esc(state.client.contracts[0].work_type || '') + '</span>' : '');
+    document.getElementById('clientSubtitle').textContent =
+      'ИНН ' + (c.inn || '—') + ' · КПП ' + (c.kpp || '—') + ' · папка: clients\\' + (c.folder || '') + '\\';
+    renderClientTabs();
+    state.docContractId = (state.client.contracts[0] || {}).id || null;
+    clientTab('rekv');
+    await showScreen('client');
+  } catch (e) { toast(e.message || String(e), true); }
+}
+function renderClientTabs() {
+  const c = state.client.client;
+  document.getElementById('rekvCard').innerHTML =
+    '<h2>Реквизиты компании <button class="btn btn-sm" onclick="clientForm(' + c.id + ')">✎ Изменить</button></h2><div class="kv">' +
+    kvRow('Полное наименование', esc(c.name_full)) + kvRow('Краткое наименование', esc(c.name_short)) +
+    kvRow('ИНН / КПП / ОГРН', esc([c.inn, c.kpp, c.ogrn].filter(Boolean).join(' / ') || '')) +
+    kvRow('Юридический адрес', esc(c.legal_address)) + kvRow('Фактический адрес', esc(c.actual_address)) +
+    kvRow('Руководитель', esc([c.director_position, c.director_fio].filter(Boolean).join(' — '))) +
+    kvRow('Действует на основании', esc(c.director_basis)) +
+    kvRow('E-mail / телефон', esc([c.email, c.phone].filter(Boolean).join(' · '))) +
+    kvRow('Примечание', esc(c.note)) + '</div>';
+  document.getElementById('bankCard').innerHTML =
+    '<h2>Банковские реквизиты <button class="btn btn-sm" onclick="clientForm(' + c.id + ')">✎ Изменить</button></h2><div class="kv">' +
+    kvRow('Расчётный счёт', esc(c.bank_account)) + kvRow('Банк', esc(c.bank_name)) +
+    kvRow('Корр. счёт', esc(c.corr_account)) + kvRow('БИК', esc(c.bik)) + '</div>';
+
+  const ct = state.client.contacts;
+  document.getElementById('contactsCard').innerHTML =
+    '<div class="row between" style="padding:14px 16px"><h2 style="margin:0">Контактные лица</h2>' +
+    '<button class="btn btn-sm" onclick="contactForm()">＋ Добавить контакт</button></div>' +
+    (ct.length ? '<table class="table"><thead><tr><th>Роль</th><th>ФИО</th><th>Должность</th><th>Телефон</th><th>E-mail</th><th style="width:90px"></th></tr></thead><tbody>' +
+      ct.map(x => '<tr><td><span class="chip">' + esc(x.role) + '</span></td><td>' + esc(x.fio) + '</td><td>' + esc(x.position) +
+        '</td><td>' + esc(x.phone) + '</td><td>' + esc(x.email) + '</td><td>' +
+        '<button class="btn btn-sm btn-ghost" onclick="contactForm(' + x.id + ')">✎</button> ' +
+        '<button class="btn btn-sm btn-ghost btn-danger" onclick="contactDelete(' + x.id + ')">✕</button></td></tr>').join('') +
+      '</tbody></table>'
+      : '<div class="empty">Контактов пока нет</div>');
+
+  const cn = state.client.contracts;
+  document.getElementById('contractsCard').innerHTML =
+    '<div class="row between" style="padding:14px 16px"><h2 style="margin:0">Договоры</h2>' +
+    '<button class="btn btn-sm btn-primary" onclick="contractForm()">＋ Новый договор</button></div>' +
+    (cn.length ? '<table class="table"><thead><tr><th>Номер</th><th>Дата</th><th>Предмет</th><th>Цена</th><th>Сроки</th><th>Статус</th><th></th></tr></thead><tbody>' +
+      cn.map(x => '<tr><td><b>' + esc(x.number) + '</b></td><td>' + fmtDate(x.date_iso) + '</td>' +
+        '<td>' + esc(x.subject || x.work_type) + '<div class="sub">' + esc(x.work_type) + (x.year ? ' · период ' + esc(x.year) : '') + '</div></td>' +
+        '<td>' + fmtMoney(x.price) + ' ₽<div class="sub">предоплата ' + esc(x.prepay_pct) + '%</div></td>' +
+        '<td class="sub">услуги: ' + esc(x.service_term || '20') + ' раб. дней<br>АЗ до ' + fmtDate(x.opinion_deadline) + '</td>' +
+        '<td>' + (x.status === 'действует' ? '<span class="badge b-green">действует</span>' : '<span class="badge b-gray">' + esc(x.status) + '</span>') + '</td>' +
+        '<td><button class="btn btn-sm btn-ghost" onclick="contractForm(' + x.id + ')">✎</button> ' +
+        '<button class="btn btn-sm btn-ghost" onclick="gotoDocs(' + x.id + ')">Документы →</button></td></tr>').join('') +
+      '</tbody></table>'
+      : '<div class="empty">Договоров пока нет — создайте первый</div>');
+}
+function clientTab(name) {
+  document.querySelectorAll('#clientTabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('#screen-client .tabpane').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'docs') renderDocsTab();
+}
+function gotoDocs(contractId) {
+  state.docContractId = contractId;
+  clientTab('docs');
+}
+
+/* ============ ДОКУМЕНТЫ В КАРТОЧКЕ ============ */
+async function renderDocsTab() {
+  const wrap = document.getElementById('docsWrap');
+  const cn = state.client.contracts;
+  if (!cn.length) {
+    wrap.innerHTML = '<div class="card"><div class="empty">Сначала создайте договор — документы генерируются в привязке к нему.</div></div>';
+    return;
+  }
+  if (!state.docContractId || !cn.some(x => x.id === state.docContractId)) state.docContractId = cn[0].id;
+  let rows;
+  try { rows = await call('contract_documents', state.docContractId); }
+  catch (e) { wrap.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
+  const contract = cn.find(x => x.id === state.docContractId);
+  const opts = cn.map(x => '<option value="' + x.id + '"' + (x.id === state.docContractId ? ' selected' : '') + '>' +
+    esc(x.number || '(без номера)') + ' от ' + fmtDate(x.date_iso) + (x.status !== 'действует' ? ' · ' + esc(x.status) : '') + '</option>').join('');
+  let html = '<div class="card"><h2>Документы договора' +
+    '<select class="mini" style="max-width:340px" onchange="state.docContractId=Number(this.value);renderDocsTab()">' + opts + '</select></h2>' +
+    '<div class="sub" style="margin-bottom:10px">' + esc(contract.subject || contract.work_type) +
+    ' · ' + fmtMoney(contract.price) + ' ₽ · срок услуг: ' + esc(contract.service_term || '20') +
+    ' раб. дней · АЗ до ' + fmtDate(contract.opinion_deadline) + '</div>' +
+    '<table class="table"><thead><tr><th>Документ</th><th>Файл</th><th>Статус</th><th>Обновлён</th><th style="width:330px">Действия</th></tr></thead><tbody>';
+  for (const r of rows) {
+    const t = r.type, d = r.doc;
+    const active = t.is_active && t.template;
+    html += '<tr' + (active || d ? '' : ' style="opacity:.55"') + '><td><b>' + esc(t.name) + '</b>' +
+      (active ? (t.code === 'dogovor' ? ' <span class="chip">шаблон</span>' : '') : ' <span class="chip soon">шаблон не подключён</span>') + '</td>';
+    if (d) {
+      html += '<td class="sub">' + esc(d.file_path) + '</td><td>' + badge(d.status) + '</td>' +
+        '<td class="sub">' + esc((d.updated_at || '').slice(0, 16)) + '<br>' + esc(d.updated_by || '') + '</td>' +
+        '<td><div class="row" style="gap:6px;flex-wrap:wrap">' +
+        '<select class="status-select" id="st-' + d.id + '">' + STATUSES.map(s => '<option' + (s === d.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>' +
+        '<button class="btn btn-sm" onclick="setStatus(' + d.id + ')">Применить</button>' +
+        '<button class="btn btn-sm" onclick="openDoc(' + d.id + ')">Открыть</button>' +
+        '<button class="btn btn-sm btn-ghost" onclick="openDocFolder(' + d.id + ')">Папка</button>' +
+        (active ? '<button class="btn btn-sm btn-ghost" onclick="generateFor(' + state.docContractId + ',' + t.id + ')">↻ Пересоздать</button>' : '') +
+        '<button class="btn btn-sm btn-ghost" onclick="showHistory(' + d.id + ')">История</button>' +
+        '</div></td>';
+    } else {
+      html += '<td class="sub">—</td><td>' + badge('не создан') + '</td><td class="sub">—</td>' +
+        '<td>' + (active
+          ? '<button class="btn btn-sm btn-primary" onclick="generateFor(' + state.docContractId + ',' + t.id + ')">Создать из шаблона</button>'
+          : '<button class="btn btn-sm" disabled>Создать из шаблона</button>') + '</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table><div class="hint" style="margin-top:10px">Новые типы документов подключаются в «Настройках» — загрузите .docx-шаблон и включите активность.</div></div>';
+  wrap.innerHTML = html;
+}
+async function setStatus(docId) {
+  const sel = document.getElementById('st-' + docId);
+  try {
+    await call('doc_set_status', docId, sel.value);
+    toast('Статус изменён: ' + sel.value);
+    await renderDocsTab();
+  } catch (e) { toast(e.message, true); }
+}
+async function generateFor(contractId, typeId) {
+  try {
+    toast('Генерация…');
+    const r = await call('doc_generate', contractId, typeId);
+    toast('Создано: ' + r.name);
+    await renderDocsTab();
+    wzShowOneResult(r);
+  } catch (e) { toast(e.message, true); }
+}
+async function openDoc(docId) { try { await call('doc_open', docId); } catch (e) { toast(e.message, true); } }
+async function openDocFolder(docId) { try { await call('doc_open_folder', docId); } catch (e) { toast(e.message, true); } }
+async function openClientFolder() { try { await call('client_open_folder', state.client.client.id); } catch (e) { toast(e.message, true); } }
+async function showHistory(docId) {
+  const h = await call('doc_history', docId);
+  openModal('История статусов', h.length
+    ? '<table class="table"><thead><tr><th>Когда</th><th>Статус</th><th>Комментарий</th><th>Кто</th></tr></thead><tbody>' +
+      h.map(x => '<tr><td>' + esc(x.ts) + '</td><td>' + badge(x.status) + '</td><td>' + esc(x.note) + '</td><td>' + esc(x.author) + '</td></tr>').join('') +
+      '</tbody></table>'
+    : '<div class="empty">Записей нет</div>', { hideSave: true, cancelLabel: 'Закрыть' });
+}
+
+/* ============ КОНТАКТЫ ============ */
+async function contactForm(contactId) {
+  const c = contactId ? state.client.contacts.find(x => x.id === contactId) : null;
+  const v = c || {};
+  openModal(c ? 'Контакт — редактирование' : 'Новый контакт',
+    '<div class="form-grid">' + fieldsHtml([
+      { name: 'id', type: 'hidden', value: v.id || '' },
+      { name: 'client_id', type: 'hidden', value: state.client.client.id },
+      { name: 'role', label: 'Роль', type: 'select', options: CONTACT_ROLES, value: v.role || 'Контактное лицо' },
+      { name: 'position', label: 'Должность', value: v.position || '' },
+      { name: 'fio', label: 'ФИО *', wide: true, value: v.fio || '' },
+      { name: 'phone', label: 'Телефон', value: v.phone || '' },
+      { name: 'email', label: 'E-mail', value: v.email || '' },
+    ]) + '</div>', {
+    onSave: async (vals) => { await call('contact_save', vals); toast('Контакт сохранён'); renderClientTabs(); }
+  });
+}
+async function contactDelete(id) {
+  if (!confirm('Удалить контакт?')) return;
+  await call('contact_delete', id);
+  toast('Контакт удалён');
+  renderClientTabs();
+}
+
+/* ============ ДОГОВОРЫ ============ */
+function contractFieldDefs(v, clientId) {
+  v = v || {};
+  const s = state.settings || {};
+  const yearNow = new Date().getFullYear();
+  return [
+    { name: 'id', type: 'hidden', value: v.id || '' },
+    { name: 'client_id', type: 'hidden', value: clientId },
+    { name: 'number', label: 'Номер договора', value: v.number || '', hint: 'Пусто — предложится автоматически', id: 'cfNumber' },
+    { name: 'date_iso', label: 'Дата договора', type: 'date', value: v.date_iso || '' },
+    { name: 'city', label: 'Город', value: v.city || s.city_default || 'Красноярск' },
+    { name: 'year', label: 'Период (год аудита/услуг)', type: 'number', value: v.year || yearNow },
+    { name: 'work_type', label: 'Вид работ', type: 'select', options: WORK_TYPES, value: v.work_type || 'Аудит' },
+    { name: 'status', label: 'Статус договора', type: 'select', options: CONTRACT_STATUSES, value: v.status || 'действует' },
+    { name: 'subject', label: 'Предмет (кратко)', wide: true, value: v.subject || '', placeholder: 'Пусто — заполнится автоматически' },
+    { name: 'price', label: 'Стоимость, ₽', type: 'number', value: v.price != null ? v.price : 0 },
+    { name: 'prepay_pct', label: 'Предоплата, %', type: 'number', value: v.prepay_pct != null ? v.prepay_pct : 50, hint: '', id: 'cfPrepay' },
+    { name: 'service_term', label: 'Срок оказания услуг, раб. дней', value: v.service_term || '20', hint: 'Пункт 5.1: «Срок оказания услуг составляет N рабочих дней…»' },
+    { name: 'opinion_deadline', label: 'Выдача заключения (АЗ) не позднее', type: 'date', value: v.opinion_deadline || '' },
+    { name: 'originals_deadline', label: 'Оригиналы отчётности до', type: 'date', value: v.originals_deadline || '', hint: 'Пусто — автоматически за 5 рабочих дней до выдачи АЗ' },
+  ];
+}
+async function contractForm(contractId) {
+  const clientId = state.client.client.id;
+  let v = {};
+  if (contractId) v = await call('contract_get', contractId);
+  openModal(contractId ? 'Договор — редактирование' : 'Новый договор',
+    '<div class="form-grid">' + fieldsHtml(contractFieldDefs(v, clientId)) + '</div>' +
+    '<div class="hint" id="cfPrepayHint"></div>', {
+    wide: true,
+    onReady: (form) => {
+      const upd = () => {
+        const p = Number(form.querySelector('[name=price]').value || 0);
+        const pct = Number(form.querySelector('[name=prepay_pct]').value || 0);
+        document.getElementById('cfPrepayHint').textContent =
+          'Предоплата: ' + fmtMoney(Math.round(p * pct / 100)) + ' ₽ · остаток: ' + fmtMoney(p - Math.round(p * pct / 100)) + ' ₽';
+      };
+      form.querySelector('[name=price]').addEventListener('input', upd);
+      form.querySelector('[name=prepay_pct]').addEventListener('input', upd);
+      bindOriginalsAuto(form);
+      upd();
+    },
+    onSave: async (vals) => {
+      await call('contract_save', vals);
+      toast('Договор сохранён');
+      state.client = await call('client_get', clientId);
+      renderClientTabs();
+      if (contractId) { state.docContractId = contractId; }
+    }
+  });
+}
+
+/* ============ МАТРИЦА ============ */
+async function loadMatrix(year) {
+  const m = await call('matrix', year || null);
+  state.matrixYear = year || null;
+  const sel = document.getElementById('matrixYear');
+  const years = ['all'].concat(m.years);
+  sel.innerHTML = years.map(y => '<option value="' + y + '"' + (String(y) === String(year || 'all') ? ' selected' : '') + '>' +
+    (y === 'all' ? 'Все годы' : y) + '</option>').join('');
+  const t = document.getElementById('matrixTable');
+  if (!m.rows.length) {
+    t.innerHTML = '<tbody><tr><td><div class="empty">Нет данных. Создайте клиентов и договоры — матрица заполнится автоматически.</div></td></tr></tbody>';
+    return;
+  }
+  let html = '<thead><tr><th style="min-width:250px">Клиент / договор</th>';
+  for (const ty of m.types) {
+    const on = ty.is_active && ty.template;
+    html += '<th class="' + (on ? '' : 'dim') + '"' + (ty.code === 'dogovor' ? ' style="background:var(--primary-light);color:var(--primary)"' : '') + '>' + esc(ty.name) + '</th>';
+  }
+  html += '</tr></thead><tbody>';
+  for (const r of m.rows) {
+    html += '<tr><td><span class="name-link" onclick="openClient(' + r.client_id + ')">' + esc(r.client_name) + '</span>' +
+      '<div class="sub">' + (r.contract_id ? 'Договор ' + esc(r.number) + (r.work_type ? ' · ' + esc(r.work_type) : '') + (r.year ? ' · период ' + esc(r.year) : '') : 'договор не заведён') + '</div></td>';
+    for (const ty of m.types) {
+      const cell = r.cells[ty.id] || { status: 'не создан' };
+      const on = ty.is_active && ty.template;
+      if (!on) { html += '<td class="dim">—</td>'; continue; }
+      html += '<td class="cell">' + (cell.doc_id
+        ? '<span style="cursor:pointer" onclick="matrixStatus(' + r.client_id + ',' + r.contract_id + ',' + cell.doc_id + ',\'' + esc(cell.status) + '\',\'' + esc(ty.name) + '\')">' + badge(cell.status) + '</span>'
+        : (r.contract_id
+          ? '<span style="cursor:pointer" title="Создать из шаблона" onclick="matrixGen(' + r.contract_id + ',' + ty.id + ')">' + badge('не создан') + '</span>'
+          : badge('не создан'))) + '</td>';
+    }
+    html += '</tr>';
+  }
+  t.innerHTML = html + '</tbody>';
+}
+async function matrixOpen(clientId, contractId) {
+  state.docContractId = contractId;
+  await openClient(clientId);
+  clientTab('docs');
+}
+function matrixStatus(clientId, contractId, docId, status, typeName) {
+  openModal('Статус документа — ' + typeName,
+    '<div class="field"><label>Текущий статус</label><div>' + badge(status) + '</div></div>' +
+    '<div class="field"><label>Новый статус</label><select name="status">' +
+    STATUSES.map(s => '<option' + (s === status ? ' selected' : '') + '>' + s + '</option>').join('') +
+    '</select></div>' +
+    '<div class="row" style="margin-top:8px">' +
+    '<button type="button" class="btn" onclick="openDoc(' + docId + ')">Открыть файл</button>' +
+    '<button type="button" class="btn" onclick="openDocFolder(' + docId + ')">Папка</button>' +
+    '<button type="button" class="btn btn-ghost" onclick="closeModal();matrixOpen(' + clientId + ',' + contractId + ')">Карточка клиента →</button>' +
+    '</div>', {
+    saveLabel: 'Применить',
+    onSave: async (vals) => {
+      await call('doc_set_status', docId, vals.status);
+      toast('Статус изменён: ' + vals.status);
+      await loadMatrix(state.matrixYear);
+    }
+  });
+}
+async function matrixGen(contractId, typeId) {
+  try {
+    toast('Генерация…');
+    const r = await call('doc_generate', contractId, typeId);
+    toast('Создано: ' + r.name);
+    await loadMatrix(state.matrixYear);
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ============ МАСТЕР ============ */
+async function loadWizard(presetClientId) {
+  const cl = await call('clients_list');
+  state.wiz.clients = cl;
+  const sel = document.getElementById('wzClient');
+  sel.innerHTML = '<option value="">— выберите клиента —</option>' +
+    cl.map(c => '<option value="' + c.id + '"' + (String(c.id) === String(presetClientId || '') ? ' selected' : '') + '>' + esc(c.name_short) + '</option>').join('');
+  const types = await call('doctypes_list');
+  state.doctypes = types;
+  document.getElementById('wzTypes').innerHTML = types.map(t => {
+    const on = t.is_active && t.template;
+    return '<div class="checkline' + (on ? '' : ' disabled') + '">' +
+      '<input type="checkbox" class="wzType" value="' + t.id + '"' + (on ? ' checked' : ' disabled') + '>' +
+      '<b>' + esc(t.name) + '</b>' + (on ? '' : ' <span class="chip soon">шаблон не подключён</span>') +
+      '<span class="spacer"></span><span class="sub">' + esc(t.template || '') + '</span></div>';
+  }).join('');
+  if (presetClientId) await wzClientChanged();
+  else { document.getElementById('wzContract').innerHTML = '<option value="">— сначала выберите клиента —</option>'; }
+  wzRenderAuto();
+}
+async function wizardFor(clientId) {
+  state.wiz.clientId = clientId;
+  await showScreen('wizard');
+}
+async function wzClientChanged() {
+  const cid = Number(document.getElementById('wzClient').value) || null;
+  state.wiz.clientId = cid;
+  const sel = document.getElementById('wzContract');
+  if (!cid) { sel.innerHTML = '<option value="">— сначала выберите клиента —</option>'; document.getElementById('wzParamsCard').style.display = 'none'; wzRenderAuto(); return; }
+  const data = await call('client_get', cid);
+  state.wiz.client = data.client;
+  state.wiz.contracts = data.contracts;
+  sel.innerHTML = '<option value="new">＋ Новый договор…</option>' +
+    data.contracts.map(x => '<option value="' + x.id + '">' + esc(x.number || '(без номера)') + ' от ' + fmtDate(x.date_iso) +
+      (x.status !== 'действует' ? ' · ' + esc(x.status) : '') + '</option>').join('');
+  if (data.contracts.length) sel.value = String(data.contracts[0].id);
+  await wzContractChanged();
+}
+async function wzContractChanged() {
+  const v = document.getElementById('wzContract').value;
+  state.wiz.contractId = v === 'new' ? null : (Number(v) || null);
+  const card = document.getElementById('wzParamsCard');
+  if (!state.wiz.clientId) { card.style.display = 'none'; return; }
+  let contract = {};
+  if (state.wiz.contractId) contract = await call('contract_get', state.wiz.contractId) || {};
+  const form = document.getElementById('wzParamsForm');
+  form.innerHTML = '<div class="form-grid">' + fieldsHtml(contractFieldDefs(contract, state.wiz.clientId)) + '</div><div class="hint" id="wzPrepayHint"></div>';
+  const upd = () => {
+    const p = Number(form.querySelector('[name=price]').value || 0);
+    const pct = Number(form.querySelector('[name=prepay_pct]').value || 0);
+    document.getElementById('wzPrepayHint').textContent =
+      'Предоплата: ' + fmtMoney(Math.round(p * pct / 100)) + ' ₽ · остаток: ' + fmtMoney(p - Math.round(p * pct / 100)) + ' ₽ · сумма прописью считается автоматически';
+  };
+  form.querySelector('[name=price]').addEventListener('input', upd);
+  form.querySelector('[name=prepay_pct]').addEventListener('input', upd);
+  bindOriginalsAuto(form);
+  upd();
+  card.style.display = 'block';
+  wzStep(2);
+  wzRenderAuto();
+}
+function wzRenderAuto() {
+  const c = state.wiz.client, s = state.settings || {};
+  const el = document.getElementById('wzAuto');
+  if (!c) { el.innerHTML = '<div class="sub" style="grid-column:1/-1">Выберите клиента — его реквизиты и данные Исполнителя подставятся в документ автоматически.</div>'; return; }
+  el.innerHTML =
+    kvRow('Заказчик', esc(c.name_full || c.name_short)) +
+    kvRow('В лице', esc([c.director_position_gen, c.director_fio_gen].filter(Boolean).join(' '))) +
+    kvRow('Основание', esc(c.director_basis)) +
+    kvRow('ИНН/КПП', esc([c.inn, c.kpp].filter(Boolean).join(' / '))) +
+    kvRow('Исполнитель', esc(s.executor_name_short || '')) +
+    kvRow('Подписант', esc(s.executor_signer_fio_short || ''));
+}
+function wzStep(n) {
+  for (let i = 1; i <= 3; i++) {
+    const el = document.getElementById('wzStep' + i);
+    el.classList.toggle('active', i === n);
+  }
+}
+async function wzGenerate() {
+  if (!state.wiz.clientId) { toast('Выберите клиента', true); return; }
+  const checked = Array.from(document.querySelectorAll('.wzType:checked')).map(x => Number(x.value));
+  if (!checked.length) { toast('Отметьте хотя бы один документ', true); return; }
+  const vals = collectForm(document.getElementById('wzParamsForm'));
+  try {
+    const saved = await call('contract_save', vals);
+    const contractId = saved.id;
+    document.getElementById('wzResultCard').style.display = 'block';
+    const resEl = document.getElementById('wzResult');
+    resEl.innerHTML = '<div class="sub">Генерация…</div>';
+    const results = [];
+    for (const tid of checked) {
+      try { results.push(await call('doc_generate', contractId, tid)); }
+      catch (e) { results.push({ error: e.message, name: 'тип #' + tid }); }
+    }
+    resEl.innerHTML = results.map(r => r.error
+      ? '<div class="success-box" style="background:var(--red-bg);border-color:#e5b8b8;color:#8f2f2f">✕ ' + esc(r.name) + ': ' + esc(r.error) + '</div>'
+      : '<div class="success-box">✓ <b>' + esc(r.name) + '</b><br><span style="font-size:12px">' + esc(r.file) + '</span><br>' + badge('готов') +
+        ' <button class="btn btn-sm" style="margin-top:8px" onclick="wzOpenFile(' + r.doc_id + ')">Открыть</button></div>').join('') +
+      '<div class="row"><button class="btn btn-sm" onclick="navTo(\'matrix\')">К матрице →</button></div>';
+    wzStep(3);
+    // обновим список договоров в селекторе
+    const data = await call('client_get', state.wiz.clientId);
+    state.wiz.contracts = data.contracts;
+    const sel = document.getElementById('wzContract');
+    sel.innerHTML = '<option value="new">＋ Новый договор…</option>' +
+      data.contracts.map(x => '<option value="' + x.id + '">' + esc(x.number || '(без номера)') + ' от ' + fmtDate(x.date_iso) + '</option>').join('');
+    sel.value = String(contractId);
+    state.wiz.contractId = contractId;
+    toast('Готово: создано документов — ' + results.filter(r => !r.error).length);
+  } catch (e) { toast(e.message || String(e), true); }
+}
+function wzShowOneResult(r) {
+  const card = document.getElementById('wzResultCard');
+  card.style.display = 'block';
+  document.getElementById('wzResult').innerHTML =
+    '<div class="success-box">✓ <b>' + esc(r.name) + '</b><br><span style="font-size:12px">' + esc(r.file) + '</span><br>' + badge('готов') + '</div>';
+}
+async function wzOpenFile(docId) { try { await call('doc_open', docId); } catch (e) { toast(e.message, true); } }
+
+/* ============ РАБОЧИЕ ДОКУМЕНТЫ ============ */
+async function loadWorkpapers() {
+  const rows = await call('workpapers_list');
+  const contracts = await call('contracts_all');
+  const people = await call('workpaper_people');
+  state.wp = { rows, contracts, people };
+  const fc = document.getElementById('wpFilterContract');
+  const cur = fc.value;
+  fc.innerHTML = '<option value="">Все договоры</option>' + contracts.map(c =>
+    '<option value="' + c.id + '">' + esc(c.client_name) + ' — ' + esc(c.number || '(без номера)') + (c.year ? ' · ' + esc(c.year) : '') + '</option>').join('');
+  if (cur) fc.value = cur;
+  const fs = document.getElementById('wpFilterStatus');
+  const curs = fs.value;
+  fs.innerHTML = '<option value="">Все статусы</option>' + WP_STATUSES.map(s => '<option>' + s + '</option>').join('');
+  if (curs) fs.value = curs;
+  renderWorkpapers();
+}
+function wpBadge(s) { return '<span class="badge ' + (WP_CLS[s] || 'b-gray') + '">' + esc(s) + '</span>'; }
+function renderWorkpapers() {
+  const fc = document.getElementById('wpFilterContract').value;
+  const fs = document.getElementById('wpFilterStatus').value;
+  const q = (document.getElementById('wpSearch').value || '').toLowerCase().trim();
+  const rows = state.wp.rows.filter(r =>
+    (!fc || String(r.contract_id) === fc) && (!fs || r.status === fs) &&
+    (!q || [r.title, r.assistant, r.reviewer, r.client_name, r.contract_number]
+      .some(v => String(v || '').toLowerCase().includes(q))));
+  const tb = document.getElementById('wpBody');
+  const sum = document.getElementById('wpSummary');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="7"><div class="empty">Нет рабочих документов. Нажмите «＋ Добавить рабочий документ».</div></td></tr>';
+    sum.textContent = '';
+    return;
+  }
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  tb.innerHTML = rows.map(r => {
+    let due = fmtDate(r.due_iso);
+    if (r.due_iso && r.status !== 'принят') {
+      const d = new Date(String(r.due_iso).slice(0, 10) + 'T00:00:00');
+      if (!isNaN(d) && d < today) due = '<b style="color:var(--red)">' + due + ' ⚠</b>';
+    }
+    const statusSel = '<select class="status-select" onchange="wpSetStatus(' + r.id + ', this.value)">' +
+      WP_STATUSES.map(s => '<option' + (s === r.status ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>';
+    return '<tr>' +
+      '<td><span class="name-link" onclick="openClient(' + r.client_id + ')">' + esc(r.client_name || '') + '</span>' +
+      '<div class="sub">' + esc(r.contract_number || '') + (r.contract_year ? ' · период ' + esc(r.contract_year) : '') + '</div></td>' +
+      '<td><b>' + esc(r.title) + '</b>' + (r.note ? '<div class="sub">' + esc(r.note) + '</div>' : '') + '</td>' +
+      '<td>' + esc(r.assistant || '—') + '</td><td>' + esc(r.reviewer || '—') + '</td>' +
+      '<td>' + due + '</td>' +
+      '<td><div class="row" style="gap:8px">' + statusSel + wpBadge(r.status) + '</div></td>' +
+      '<td><button class="btn btn-sm btn-ghost" onclick="wpForm(' + r.id + ')">✎</button> ' +
+      '<button class="btn btn-sm btn-ghost btn-danger" onclick="wpDelete(' + r.id + ')">✕</button></td></tr>';
+  }).join('');
+  const cnt = {};
+  rows.forEach(r => { cnt[r.status] = (cnt[r.status] || 0) + 1; });
+  sum.textContent = 'Показано: ' + rows.length + ' — ' + WP_STATUSES.filter(s => cnt[s]).map(s => s + ': ' + cnt[s]).join(', ');
+}
+async function wpSetStatus(id, status) {
+  try { await call('workpaper_set_status', id, status); toast('Статус: ' + status); await loadWorkpapers(); }
+  catch (e) { toast(e.message, true); }
+}
+async function wpDelete(id) {
+  if (!confirm('Удалить рабочий документ?')) return;
+  try { await call('workpaper_delete', id); toast('Удалено'); await loadWorkpapers(); }
+  catch (e) { toast(e.message, true); }
+}
+async function wpForm(id) {
+  if (!state.wp.contracts.length) { try { state.wp.contracts = await call('contracts_all'); state.wp.people = await call('workpaper_people'); } catch (e) { /* тихо */ } }
+  if (!state.wp.contracts.length) { toast('Сначала создайте клиента и договор', true); return; }
+  const v = (id ? state.wp.rows.find(x => x.id === id) : null) || {};
+  const opts = state.wp.contracts.map(c => ({ v: String(c.id), l: (c.client_name || '') + ' — ' + (c.number || '(без номера)') + (c.year ? ' · ' + c.year : '') }));
+  const dl = (pid, list) => '<datalist id="' + pid + '">' + (list || []).map(x => '<option value="' + esc(x) + '">').join('') + '</datalist>';
+  openModal(id ? 'Рабочий документ — редактирование' : 'Новый рабочий документ',
+    '<div class="form-grid">' + fieldsHtml([
+      { name: 'id', type: 'hidden', value: v.id || '' },
+      { name: 'contract_id', label: 'Договор *', type: 'select', options: opts, value: v.contract_id || '', wide: true },
+      { name: 'title', label: 'Рабочий документ / раздел *', wide: true, value: v.title || '', placeholder: 'Например: РД «Основные средства» — ведение и наличие' },
+      { name: 'assistant', label: 'Готовит (ассистент)', value: v.assistant || '' },
+      { name: 'reviewer', label: 'Контролирует (аудитор)', value: v.reviewer || '' },
+      { name: 'due_iso', label: 'Планируемый срок сдачи', type: 'date', value: v.due_iso || '' },
+      { name: 'status', label: 'Статус', type: 'select', options: WP_STATUSES, value: v.status || 'не начат' },
+      { name: 'note', label: 'Примечание', type: 'textarea', wide: true, value: v.note || '' },
+    ]) + '</div>' + dl('wpAssistants', state.wp.people.assistants) + dl('wpReviewers', state.wp.people.reviewers), {
+    wide: true,
+    onReady: (form) => {
+      const a = form.querySelector('[name=assistant]'), rv = form.querySelector('[name=reviewer]');
+      if (a) a.setAttribute('list', 'wpAssistants');
+      if (rv) rv.setAttribute('list', 'wpReviewers');
+    },
+    onSave: async (vals) => {
+      await call('workpaper_save', vals);
+      toast('Рабочий документ сохранён');
+      await loadWorkpapers();
+    }
+  });
+}
+
+/* ============ РЕПОЗИТОРИЙ ============ */
+async function loadRepo() {
+  document.getElementById('repoRoot').textContent = (state.info ? state.info.clients_dir : 'clients\\') + ' — папки клиентов создаются автоматически';
+  const tree = await call('repo_tree');
+  const el = document.getElementById('repoTree');
+  if (!tree.length) {
+    el.innerHTML = '<div class="empty">Папок пока нет</div>';
+    document.getElementById('repoFiles').innerHTML = '<div class="empty">Выберите папку слева</div>';
+    return;
+  }
+  el.innerHTML = tree.map(d =>
+    '<div class="t-item" data-rel="' + esc(d.rel) + '" onclick="repoSelect(this.dataset.rel)">🗀 ' + esc(d.name) + '</div>' +
+    d.children.map(k => '<div class="t-item indent1" data-rel="' + esc(d.rel + '/' + k) + '" onclick="repoSelect(this.dataset.rel)">🗂 ' + esc(k) + '</div>').join('')
+  ).join('');
+  repoSelect(tree[0].rel);
+}
+async function repoSelect(rel) {
+  document.querySelectorAll('#repoTree .t-item').forEach(x => x.classList.toggle('active', x.dataset.rel === rel));
+  const r = await call('repo_files', rel);
+  const el = document.getElementById('repoFiles');
+  el.innerHTML = '<div class="row between" style="padding:14px 16px"><h2 style="margin:0">' + esc(rel) + '</h2>' +
+    '<button class="btn btn-sm" data-rel="' + esc(rel) + '" onclick="repoOpen(this.dataset.rel)">🗗 Открыть в проводнике</button></div>' +
+    (r.files.length
+      ? '<table class="table"><thead><tr><th>Файл</th><th>Размер</th><th>Изменён</th><th style="width:120px"></th></tr></thead><tbody>' +
+        r.files.map(f => '<tr><td>📄 ' + esc(f.name) + '</td><td>' + f.size_kb + ' КБ</td><td class="sub">' + esc(f.mtime) + '</td>' +
+          '<td><button class="btn btn-sm" data-rel="' + esc(f.rel) + '" onclick="repoOpenFile(this.dataset.rel)">Открыть</button></td></tr>').join('') +
+        '</tbody></table>'
+      : '<div class="empty">В папке пока нет файлов</div>');
+}
+async function repoOpen(rel) { try { await call('repo_open', rel || ''); } catch (e) { toast(e.message, true); } }
+async function repoOpenFile(rel) { try { await call('repo_open_file', rel); } catch (e) { toast(e.message, true); } }
+
+/* ============ НАСТРОЙКИ ============ */
+const EXEC_FIELDS = [
+  ['executor_name_full', 'Полное наименование'], ['executor_name_short', 'Краткое наименование'],
+  ['executor_sro_ornz', 'СРО (ОРНЗ)'], ['executor_legal_address', 'Юридический адрес'],
+  ['executor_inn', 'ИНН'], ['executor_kpp', 'КПП'],
+  ['executor_bank_account', 'Расчётный счёт'], ['executor_bank_name', 'Банк'],
+  ['executor_corr_account', 'Корр. счёт'], ['executor_bik', 'БИК'],
+  ['executor_signer_position', 'Должность подписанта'], ['executor_signer_position_gen', 'Должность подписанта (в лице …)'],
+  ['executor_signer_fio', 'ФИО подписанта'], ['executor_signer_fio_gen', 'ФИО подписанта (род. падеж)'],
+  ['executor_signer_fio_short', 'ФИО подписанта сокращённо'], ['executor_signer_basis', 'Действует на основании'],
+];
+async function loadSettings() {
+  state.settings = await call('settings_get');
+  const s = state.settings;
+  document.getElementById('execFields').innerHTML = fieldsHtml(
+    EXEC_FIELDS.map(([k, l], i) => ({ name: k, label: l, value: s[k] || '', wide: i % 2 === 0 && (k === 'executor_name_full' || k === 'executor_legal_address' || k === 'executor_bank_name' || k === 'executor_insurance'), hint: k === 'executor_signer_fio' ? 'Введите полностью — род. падеж и сокращение заполнятся автоматически' : '' }))
+  ) + '<div class="field wide"><label>Страхование ответственности (п. 7.9 целиком)</label><textarea name="executor_insurance" rows="2">' + esc(s.executor_insurance || '') + '</textarea></div>';
+  bindFioAutofill(document.getElementById('settingsForm'), 'executor_signer_fio', 'executor_signer_fio_gen', 'executor_signer_fio_short');
+  const form = document.getElementById('settingsForm');
+  form.querySelector('[name=num_mask]').value = s.num_mask || '';
+  form.querySelector('[name=seq_next]').value = s.seq_next || '1';
+  form.querySelector('[name=city_default]').value = s.city_default || '';
+  document.getElementById('svcInfo').innerHTML =
+    kvRow('Версия', esc((state.info || {}).version || '')) +
+    kvRow('База данных', esc((state.info || {}).db || '')) +
+    kvRow('Репозиторий', esc((state.info || {}).clients_dir || '')) +
+    kvRow('Шаблоны', esc(s._templates_dir || ''));
+  await renderDoctypes();
+}
+async function saveSettings() {
+  const vals = collectForm(document.getElementById('settingsForm'));
+  delete vals['_templates_dir'];
+  await call('settings_save', vals);
+  state.settings = await call('settings_get');
+  toast('Настройки сохранены');
+}
+async function renderDoctypes() {
+  const types = await call('doctypes_list');
+  state.doctypes = types;
+  document.getElementById('doctypesBody').innerHTML = types.map(t =>
+    '<tr' + (t.is_active ? '' : ' style="opacity:.6"') + '>' +
+    '<td><b>' + esc(t.name) + '</b></td><td class="sub">' + esc(t.code) + '</td>' +
+    '<td class="sub">' + (t.template ? '📄 ' + esc(t.template) : '— не загружен —') + '</td>' +
+    '<td class="sub">' + esc(t.filename_mask) + '</td>' +
+    '<td><input type="checkbox" style="width:16px;height:16px;accent-color:var(--primary)" ' + (t.is_active ? 'checked' : '') + ' ' +
+    (t.template ? '' : 'disabled title="Сначала загрузите шаблон"') + ' onchange="toggleDoctype(' + t.id + ', this.checked)"></td>' +
+    '<td><div class="row" style="gap:6px">' +
+    '<button class="btn btn-sm" onclick="uploadTemplate(' + t.id + ')">⇪ ' + (t.template ? 'Заменить' : 'Загрузить') + '</button>' +
+    '<button class="btn btn-sm btn-ghost" onclick="doctypeForm(' + t.id + ')">✎</button>' +
+    '</div></td></tr>').join('');
+}
+async function toggleDoctype(id, on) {
+  const t = state.doctypes.find(x => x.id === id);
+  if (!t) return;
+  try {
+    await call('doctype_save', Object.assign({}, t, { is_active: on ? 1 : 0 }));
+    toast('Тип «' + t.name + '» ' + (on ? 'включён' : 'отключён'));
+    await renderDoctypes();
+  } catch (e) { toast(e.message, true); await renderDoctypes(); }
+}
+async function uploadTemplate(id) {
+  try {
+    const r = await call('pick_template_file');
+    if (r.cancelled) return;
+    const t = state.doctypes.find(x => x.id === id);
+    await call('doctype_save', Object.assign({}, t, { template: r.name, is_active: 1 }));
+    toast('Шаблон загружен: ' + r.name);
+    await renderDoctypes();
+  } catch (e) { toast(e.message, true); }
+}
+async function doctypeForm(id) {
+  const t = id ? state.doctypes.find(x => x.id === id) : null;
+  const v = t || {};
+  openModal(t ? 'Тип документа — редактирование' : 'Новый тип документа',
+    '<div class="form-grid">' + fieldsHtml([
+      { name: 'id', type: 'hidden', value: v.id || '' },
+      { name: 'name', label: 'Название *', value: v.name || '', placeholder: 'Например: Счёт на оплату' },
+      { name: 'code', label: 'Код (латиницей)', value: v.code || '', placeholder: 'schet' },
+      { name: 'template', label: 'Файл шаблона', value: v.template || '', readonly: true, hint: 'Загружается кнопкой ниже или в списке шаблонов' },
+      { name: 'filename_mask', label: 'Маска имени файла', value: v.filename_mask || '{type} {number} от {date}.docx' },
+      { name: 'sort', label: 'Порядок в списках', type: 'number', value: v.sort || 100 },
+    ]) + '</div><div class="row"><button type="button" class="btn" id="dtPick">⇪ Выбрать .docx-файл…</button></div>', {
+    onReady: (form) => {
+      document.getElementById('dtPick').onclick = async () => {
+        try {
+          const r = await call('pick_template_file');
+          if (!r.cancelled && r.name) form.querySelector('[name=template]').value = r.name;
+        } catch (e) { toast(e.message, true); }
+      };
+    },
+    onSave: async (vals) => {
+      await call('doctype_save', Object.assign({}, vals, { is_active: vals.template ? 1 : 0 }));
+      toast('Тип документа сохранён');
+      await renderDoctypes();
+    }
+  });
+}
+async function templatesOpenFolder() { try { await call('templates_open_folder'); } catch (e) { toast(e.message, true); } }
+async function backupNow() {
+  try {
+    toast('Создание бэкапа…');
+    const r = await call('backup_now');
+    toast('Бэкап создан: ' + r.path + ' (' + r.size_mb + ' МБ)');
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ============ СТАРТ ============ */
+function showFatal(msg) {
+  document.getElementById('fatal').style.display = 'block';
+  document.getElementById('fatalText').textContent = msg;
+}
+async function init() {
+  api = window.pywebview.api;
+  try {
+    state.info = await call('app_info');
+    state.settings = await call('settings_get');
+    document.getElementById('sidebarFoot').innerHTML =
+      'DocFlow v' + esc(state.info.version) + '<br>БД: ' + esc(state.info.db) +
+      '<br>Клиентов: ' + state.info.counts.clients + ' · Документов: ' + state.info.counts.documents;
+    document.getElementById('topOrg').textContent = state.settings.executor_name_short || '';
+    await loadClients();
+  } catch (e) { showFatal(e.message || String(e)); }
+}
+window.addEventListener('pywebviewready', init);
+setTimeout(() => {
+  if (!api) showFatal('Не удалось подключиться к Python-части приложения (pywebview API). Запустите программу через DocFlow-debug.bat и пришлите текст ошибки разработчику.');
+}, 6000);
+</script>
+</body>
+</html>
