@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-"""База данных SQLite: схема, сиды, хелперы."""
+"""База данных SQLite: схема, сиды, хелперы. Пользователи, сессии, журнал, планер."""
+import hashlib
+import secrets
 import sqlite3
 from datetime import datetime
 
-from config import DB_PATH, ensure_dirs, TEMPLATES_DIR
+from config import ADMIN_LOGIN, ADMIN_PASSWORD, DB_PATH, ensure_dirs, TEMPLATES_DIR
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients(
@@ -71,6 +73,53 @@ CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_id);
 CREATE INDEX IF NOT EXISTS idx_docs_contract ON documents(contract_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_client ON contacts(client_id);
+
+-- ===== пользователи, сессии, журнал, планер (v1.2) =====
+CREATE TABLE IF NOT EXISTS users(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  login TEXT UNIQUE NOT NULL,
+  name TEXT DEFAULT '',
+  password_hash TEXT NOT NULL,
+  role TEXT DEFAULT 'user',            -- 'admin' | 'user'
+  is_active INTEGER DEFAULT 1,
+  note TEXT DEFAULT '',
+  created_at TEXT, last_login TEXT
+);
+CREATE TABLE IF NOT EXISTS sessions(
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  created_at TEXT, last_seen TEXT
+);
+CREATE TABLE IF NOT EXISTS audit_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT, user_id INTEGER, login TEXT, action TEXT,
+  entity TEXT DEFAULT '', entity_id TEXT DEFAULT '',
+  details TEXT DEFAULT '', ip TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
+CREATE TABLE IF NOT EXISTS tasks(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  date_iso TEXT DEFAULT '',            -- дата задачи YYYY-MM-DD
+  start_time TEXT DEFAULT '',          -- HH:MM ('' — целый день)
+  end_time TEXT DEFAULT '',            -- HH:MM / дедлайн в течение дня
+  deadline_iso TEXT DEFAULT '',        -- дедлайн (дата), если отличается от даты
+  responsible TEXT DEFAULT '',         -- ответственный (логин или ФИО)
+  status TEXT DEFAULT 'план',          -- план | в работе | готово | отменена
+  priority TEXT DEFAULT 'обычный',     -- низкий | обычный | высокий
+  client_id INTEGER, contract_id INTEGER,
+  color TEXT DEFAULT '',
+  created_by TEXT DEFAULT '', updated_by TEXT DEFAULT '',
+  created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS task_participants(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL, login TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_date ON tasks(date_iso);
+CREATE INDEX IF NOT EXISTS idx_task_part_task ON task_participants(task_id);
 """
 
 DEFAULT_SETTINGS = {
@@ -108,6 +157,81 @@ DEFAULT_DOCTYPES = [
 
 def now():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+
+# ---------- пароли и пользователи ----------
+
+PBKDF2_ITERATIONS = 120000
+
+
+def hash_password(password):
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac('sha256', str(password).encode('utf-8'),
+                             bytes.fromhex(salt), PBKDF2_ITERATIONS)
+    return f'pbkdf2${PBKDF2_ITERATIONS}${salt}${dk.hex()}'
+
+
+def verify_password(password, stored):
+    try:
+        _, iters, salt, hex_dk = str(stored).split('$')
+        dk = hashlib.pbkdf2_hmac('sha256', str(password).encode('utf-8'),
+                                 bytes.fromhex(salt), int(iters))
+        return secrets.compare_digest(dk.hex(), hex_dk)
+    except (ValueError, TypeError):
+        return False
+
+
+def user_by_login(login):
+    return q1('SELECT * FROM users WHERE lower(login)=lower(?)', ((login or '').strip(),))
+
+
+def user_by_id(uid):
+    return q1('SELECT * FROM users WHERE id=?', (uid,))
+
+
+def create_session(user_id):
+    token = secrets.token_urlsafe(32)
+    ex('INSERT INTO sessions(token,user_id,created_at,last_seen) VALUES(?,?,?,?)',
+       (token, user_id, now(), now()))
+    return token
+
+
+def session_user(token):
+    if not token:
+        return None
+    s = q1('SELECT u.* FROM sessions ss JOIN users u ON u.id=ss.user_id WHERE ss.token=?',
+           (token,))
+    if s and not s['is_active']:
+        return None
+    if token:
+        ex('UPDATE sessions SET last_seen=? WHERE token=?', (now(), token))
+    return s
+
+
+def drop_sessions(user_id):
+    ex('DELETE FROM sessions WHERE user_id=?', (user_id,))
+
+
+def audit(user_id, login, action, entity='', entity_id='', details=''):
+    """Запись в журнал посещения/действий приложения."""
+    ex('INSERT INTO audit_log(ts,user_id,login,action,entity,entity_id,details)'
+       ' VALUES(?,?,?,?,?,?,?)',
+       (now(), user_id, login or '', action, entity or '', str(entity_id or ''),
+        str(details or '')[:500]))
+
+
+def ensure_admin(c):
+    """Создаёт/чинит учётную запись администратора."""
+    row = c.execute('SELECT id FROM users WHERE lower(login)=lower(?)',
+                    (ADMIN_LOGIN,)).fetchone()
+    if not row:
+        c.execute('INSERT INTO users(login,name,password_hash,role,is_active,created_at)'\
+                  ' VALUES(?,?,?,?,1,?)',
+                  (ADMIN_LOGIN, 'Администратор', hash_password(ADMIN_PASSWORD),
+                   'admin', now()))
+    else:
+        # если пароль админа был испорчен — не трогаем; роль всегда admin
+        c.execute("UPDATE users SET role='admin', is_active=1 WHERE id=?", (row['id'],))
 
 
 def conn():
@@ -151,6 +275,7 @@ def init_db():
                     'INSERT INTO document_types(code,name,template,filename_mask,sort,is_active)'
                     ' VALUES(?,?,?,?,?,?)', (code, name, tpl, mask, sort, act))
         _migrate(c)
+        ensure_admin(c)
         c.commit()
 
 

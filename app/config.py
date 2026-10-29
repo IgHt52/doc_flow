@@ -3,7 +3,11 @@
 import os
 from pathlib import Path
 
-APP_VERSION = '1.1.0'
+APP_VERSION = '1.2.0'
+
+# Учётная запись администратора (создаётся при первом запуске)
+ADMIN_LOGIN = 'admin'
+ADMIN_PASSWORD = '25571555'
 
 def _root():
     env = os.environ.get('DOCFLOW_ROOT')
