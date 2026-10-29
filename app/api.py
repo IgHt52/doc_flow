@@ -79,6 +79,16 @@ def admin_only(fn):
     return wrapper
 
 
+
+def session_token(fn):
+    """Первым аргументом frontend передаёт токен сессии; восстанавливаем пользователя."""
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        self.set_session(token)
+        return fn(self, *args, **kwargs)
+    return wrapper
+
+
 def open_path(path):
     path = str(path)
     if sys.platform == 'win32':
@@ -171,7 +181,7 @@ class Api:
                 'role': u['role'], 'is_admin': u['role'] == 'admin'}
 
     @api_method
-    def session_get(self, token=None):
+    def session_get(self):
         """Проверка сохранённой сессии при запуске окна."""
         if token is not None:
             self.set_session(token)
@@ -181,6 +191,7 @@ class Api:
                 'token': self._token}
 
     @api_method
+    @session_token
     def change_own_password(self, data):
         data = data or {}
         if not self.user:
@@ -197,6 +208,8 @@ class Api:
         return {'ok': True}
 
     @needs_auth
+    @api_method
+    @session_token
     def users_options(self):
         """Список активных пользователей — для планера (ответственный/участники)."""
         rows = db.q("SELECT login, name FROM users WHERE is_active=1 ORDER BY name COLLATE NOCASE")
@@ -366,6 +379,7 @@ class Api:
         return t
 
     @api_method
+    @session_token
     @needs_auth
     def tasks_list(self, data=None):
         """Список задач за период + участники + имена пользователей."""
@@ -395,12 +409,14 @@ class Api:
         return rows
 
     @api_method
+    @session_token
     @needs_auth
     def task_get(self, tid):
         t = self._task_row(tid)
         return t or {'error': 'Задача не найдена'}
 
     @api_method
+    @session_token
     @needs_auth
     def task_save(self, data):
         data = data or {}
@@ -461,6 +477,7 @@ class Api:
         return {'ok': True, 'id': tid, 'task': self._task_row(tid)}
 
     @api_method
+    @session_token
     @needs_auth
     def task_set_status(self, tid, status):
         if status not in TASK_STATUSES:
@@ -474,6 +491,7 @@ class Api:
         return {'ok': True}
 
     @api_method
+    @session_token
     @needs_auth
     def task_delete(self, tid):
         t = db.q1('SELECT title FROM tasks WHERE id=?', (tid,))
@@ -487,6 +505,7 @@ class Api:
     # ---------- клиенты ----------
 
     @api_method
+    @session_token
     @needs_auth
     def clients_list(self):
         clients = db.q('SELECT * FROM clients ORDER BY name_short COLLATE NOCASE')
@@ -527,6 +546,7 @@ class Api:
         return result
 
     @api_method
+    @session_token
     @needs_auth
     def client_get(self, cid):
         client = db.q1('SELECT * FROM clients WHERE id=?', (cid,))
@@ -538,6 +558,7 @@ class Api:
         return {'client': client, 'contacts': contacts, 'contracts': contracts}
 
     @api_method
+    @session_token
     @needs_auth
     def client_save(self, data):
         data = data or {}
@@ -567,6 +588,7 @@ class Api:
         return {'ok': True, 'id': cid, 'folder': str(folder_path)}
 
     @api_method
+    @session_token
     @needs_auth
     def client_open_folder(self, cid):
         c = db.q1('SELECT * FROM clients WHERE id=?', (cid,))
@@ -580,6 +602,7 @@ class Api:
     # ---------- контакты ----------
 
     @api_method
+    @session_token
     @needs_auth
     def contact_save(self, data):
         data = data or {}
@@ -604,6 +627,7 @@ class Api:
         return {'ok': True, 'id': cid}
 
     @api_method
+    @session_token
     @needs_auth
     def contact_delete(self, contact_id):
         c = db.q1('SELECT * FROM contacts WHERE id=?', (contact_id,))
@@ -614,12 +638,14 @@ class Api:
     # ---------- договоры ----------
 
     @api_method
+    @session_token
     @needs_auth
     def contract_get(self, contract_id):
         return db.q1('SELECT * FROM contracts WHERE id=?', (contract_id,)) or \
             {'error': 'Договор не найден'}
 
     @api_method
+    @session_token
     @needs_auth
     def contract_save(self, data):
         data = data or {}
@@ -683,6 +709,7 @@ class Api:
         return mask.replace('{seq}', str(seq)).replace('{yy}', yy)
 
     @api_method
+    @session_token
     @needs_auth
     def suggest_number(self, year=None):
         return self._suggest_number(year)
@@ -690,18 +717,21 @@ class Api:
     # ---------- склонение ФИО / сроки ----------
 
     @api_method
+    @session_token
     @needs_auth
     def inflect_fio(self, fio):
         import declension
         return declension.inflect(fio)
 
     @api_method
+    @session_token
     @needs_auth
     def calc_originals_deadline(self, opinion_iso):
         """Дата оригиналов отчётности = 5 рабочих дней до выдачи АЗ."""
         return gen.minus_workdays(opinion_iso, 5)
 
     @api_method
+    @session_token
     @needs_auth
     def contracts_all(self):
         return db.q("""SELECT ct.id, ct.number, ct.date_iso, ct.year, ct.status,
@@ -712,6 +742,7 @@ class Api:
     # ---------- рабочие документы (таблица готовности) ----------
 
     @api_method
+    @session_token
     @needs_auth
     def workpapers_list(self, contract_id=None):
         sql = """SELECT w.*, ct.number contract_number, ct.year contract_year,
@@ -727,6 +758,7 @@ class Api:
         return db.q(sql, params)
 
     @api_method
+    @session_token
     @needs_auth
     def workpaper_save(self, data):
         data = data or {}
@@ -759,6 +791,7 @@ class Api:
         return {'ok': True, 'id': wid}
 
     @api_method
+    @session_token
     @needs_auth
     def workpaper_set_status(self, wp_id, status):
         if status not in WP_STATUSES:
@@ -769,6 +802,7 @@ class Api:
         return {'ok': True}
 
     @api_method
+    @session_token
     @needs_auth
     def workpaper_delete(self, wp_id):
         w = db.q1('SELECT title FROM workpapers WHERE id=?', (wp_id,))
@@ -777,6 +811,7 @@ class Api:
         return {'ok': True}
 
     @api_method
+    @session_token
     @needs_auth
     def workpaper_people(self):
         a = [r['assistant'] for r in
@@ -788,11 +823,13 @@ class Api:
     # ---------- типы документов / шаблоны ----------
 
     @api_method
+    @session_token
     @needs_auth
     def doctypes_list(self):
         return db.q('SELECT * FROM document_types ORDER BY sort, id')
 
     @api_method
+    @session_token
     @needs_auth
     def doctype_save(self, data):
         data = data or {}
@@ -824,6 +861,7 @@ class Api:
         return {'ok': True, 'id': did}
 
     @api_method
+    @session_token
     @needs_auth
     def pick_template_file(self):
         """Файловый диалог: выбрать .docx и скопировать в папку шаблонов."""
@@ -846,6 +884,7 @@ class Api:
     # ---------- документы ----------
 
     @api_method
+    @session_token
     @needs_auth
     def contract_documents(self, contract_id):
         types = db.q('SELECT * FROM document_types ORDER BY sort, id')
@@ -863,6 +902,7 @@ class Api:
         return rows
 
     @api_method
+    @session_token
     @needs_auth
     def doc_generate(self, contract_id, type_id):
         contract = db.q1('SELECT * FROM contracts WHERE id=?', (contract_id,))
@@ -920,6 +960,7 @@ class Api:
                 'date_display': gen.fmt_dot(contract['date_iso'])}
 
     @api_method
+    @session_token
     @needs_auth
     def doc_set_status(self, doc_id, status):
         if status not in STATUS_ORDER:
@@ -937,11 +978,13 @@ class Api:
         return {'ok': True}
 
     @api_method
+    @session_token
     @needs_auth
     def doc_history(self, doc_id):
         return db.q('SELECT * FROM status_history WHERE document_id=? ORDER BY id DESC', (doc_id,))
 
     @api_method
+    @session_token
     @needs_auth
     def doc_open(self, doc_id):
         d = db.q1('SELECT * FROM documents WHERE id=?', (doc_id,))
@@ -954,6 +997,7 @@ class Api:
         return {'ok': True}
 
     @api_method
+    @session_token
     @needs_auth
     def doc_open_folder(self, doc_id):
         d = db.q1('SELECT * FROM documents WHERE id=?', (doc_id,))
@@ -968,6 +1012,7 @@ class Api:
     # ---------- матрица ----------
 
     @api_method
+    @session_token
     @needs_auth
     def matrix(self, year=None):
         types = db.q('SELECT * FROM document_types ORDER BY sort, id')
@@ -1014,6 +1059,7 @@ class Api:
     # ---------- репозиторий ----------
 
     @api_method
+    @session_token
     @needs_auth
     def repo_tree(self):
         CLIENTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1026,6 +1072,7 @@ class Api:
         return tree
 
     @api_method
+    @session_token
     @needs_auth
     def repo_files(self, rel=''):
         base = (CLIENTS_DIR / (rel or '')).resolve()
@@ -1048,6 +1095,7 @@ class Api:
         return {'rel': rel, 'files': files}
 
     @api_method
+    @session_token
     @needs_auth
     def repo_open(self, rel=''):
         base = (CLIENTS_DIR / (rel or '')).resolve()
@@ -1060,6 +1108,7 @@ class Api:
         return {'ok': True}
 
     @api_method
+    @session_token
     @needs_auth
     def repo_open_file(self, rel):
         p = (CLIENTS_DIR / (rel or '')).resolve()
@@ -1075,13 +1124,13 @@ class Api:
     # ---------- настройки ----------
 
     @api_method
-    @needs_auth
     def settings_get(self):
         s = db.settings_dict()
         s['_templates_dir'] = str(TEMPLATES_DIR)
         return s
 
     @api_method
+    @session_token
     @needs_auth
     def settings_save(self, data):
         data = data or {}
@@ -1095,6 +1144,7 @@ class Api:
         return {'ok': True, 'saved': saved}
 
     @api_method
+    @session_token
     @needs_auth
     def templates_open_folder(self):
         TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
@@ -1104,6 +1154,7 @@ class Api:
     # ---------- бэкап ----------
 
     @api_method
+    @session_token
     @needs_auth
     def backup_now(self):
         import sqlite3
@@ -1123,3 +1174,49 @@ class Api:
         size = sum(f.stat().st_size for f in dst.rglob('*') if f.is_file())
         self._log('backup', 'backup', ts, f'{round(size / 1024 / 1024, 1)} МБ')
         return {'ok': True, 'path': str(dst), 'size_mb': round(size / 1024 / 1024, 1)}
+
+    # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
+
+    # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
+
+    # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
+
+    # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
+
+    def user_set_active_ex(self, uid, active):
+        return self.user_set_active(uid, active)
+
+    def user_reset_password_ex(self, uid, password):
+        return self.user_reset_password(uid, password)
+
+    def task_set_status_ex(self, tid, status):
+        return self.task_set_status(tid, status)
+
+    def workpaper_set_status_ex(self, wp_id, status):
+        return self.workpaper_set_status(wp_id, status)
+
+    def doc_generate_ex(self, contract_id, type_id):
+        return self.doc_generate(contract_id, type_id)
+
+    def doc_set_status_ex(self, doc_id, status):
+        return self.doc_set_status(doc_id, status)
+
+    # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
+
+    def user_set_active_ex(self, uid, active):
+        return self.user_set_active(uid, active)
+
+    def user_reset_password_ex(self, uid, password):
+        return self.user_reset_password(uid, password)
+
+    def task_set_status_ex(self, tid, status):
+        return self.task_set_status(tid, status)
+
+    def workpaper_set_status_ex(self, wp_id, status):
+        return self.workpaper_set_status(wp_id, status)
+
+    def doc_generate_ex(self, contract_id, type_id):
+        return self.doc_generate(contract_id, type_id)
+
+    def doc_set_status_ex(self, doc_id, status):
+        return self.doc_set_status(doc_id, status)

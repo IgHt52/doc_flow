@@ -150,12 +150,58 @@
   .toast.err{background:#b23636}
 
   .fatal{display:none;background:var(--red-bg);border:1px solid #e5b8b8;color:#8f2f2f;padding:14px 18px;border-radius:9px;margin-bottom:16px;font-size:13.5px}
+
+  /* ===== ЭКРАН АВТОРИЗАЦИИ ===== */
+  .login-overlay{position:fixed;inset:0;background:linear-gradient(135deg,#1e2a3a 0%,#206bc4 100%);display:flex;align-items:center;justify-content:center;z-index:500}
+  .login-card{background:#fff;border-radius:14px;width:380px;max-width:92vw;padding:30px 30px 24px;box-shadow:0 24px 70px rgba(0,0,0,.4)}
+  .login-logo{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:8px}
+  .login-logo .mark{width:44px;height:44px;border-radius:10px;background:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;color:#fff}
+  .login-logo b{font-size:20px}
+  .login-sub{text-align:center;color:var(--muted);font-size:12.5px;margin-bottom:20px}
+  .login-card .field input{padding:10px 12px}
+  .login-btn{width:100%;justify-content:center;padding:10px;font-size:14px;margin-top:4px}
+  .login-err{display:none;background:var(--red-bg);border:1px solid #e5b8b8;color:#8f2f2f;padding:9px 12px;border-radius:7px;font-size:12.5px;margin-bottom:12px}
+  .user-menu{position:relative}
+  .user-menu-pop{display:none;position:absolute;right:0;top:44px;background:#fff;border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.12);min-width:210px;padding:6px;z-index:60}
+  .user-menu-pop.show{display:block}
+  .um-name{padding:8px 10px 6px;font-weight:700;font-size:13px}
+  .um-role{color:var(--muted);font-size:11.5px;font-weight:400}
+  .um-item{padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;display:flex;gap:8px;align-items:center}
+  .um-item:hover{background:var(--primary-light);color:var(--primary)}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .cal-dow{text-align:center;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;padding:4px 0}
+  .cal-cell{min-height:96px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:5px 6px;cursor:pointer;font-size:12px;position:relative}
+  .cal-cell:hover{border-color:var(--primary);box-shadow:0 0 0 2px rgba(32,107,196,.12)}
+  .cal-cell.other{opacity:.4}
+  .cal-cell.today{border-color:var(--primary);background:var(--primary-light)}
+  .cal-daynum{font-weight:700;font-size:12px;margin-bottom:3px}
+  .cal-ev{display:block;border-left:3px solid var(--primary);background:#f4f8fd;border-radius:4px;padding:1px 5px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+  .cal-ev.st-gotov{border-left-color:var(--green);background:var(--green-bg)}
+  .cal-ev.st-otmenena{border-left-color:var(--gray);background:var(--gray-bg);text-decoration:line-through}
+  .cal-ev.st-vrabote{border-left-color:var(--amber);background:var(--amber-bg)}
+  .cal-ev.overdue{border-left-color:var(--red);background:var(--red-bg)}
+  .task-line{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:7px;font-size:13px;background:#fff}
   .empty{padding:30px;text-align:center;color:var(--muted);font-size:13.5px}
   code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:12px}
   .status-select{padding:5px 8px;border:1px solid var(--border-dark);border-radius:6px;font-size:12.5px;background:#fff;font-family:inherit}
 </style>
 </head>
 <body>
+<!-- ЭКРАН АВТОРИЗАЦИИ (показывается при каждом запуске) -->
+<div class="login-overlay" id="loginOverlay">
+  <form class="login-card" onsubmit="return false">
+    <div class="login-logo"><div class="mark">D</div><b>DocFlow</b></div>
+    <div class="login-sub">Вход в систему · документооборот ООО «САИ»</div>
+    <div class="login-err" id="loginErr"></div>
+    <div class="field"><label>Логин</label>
+      <input type="text" id="loginUser" autocomplete="username" placeholder="admin" autofocus></div>
+    <div class="field"><label>Пароль</label>
+      <input type="password" id="loginPass" autocomplete="current-password" placeholder="Пароль"></div>
+    <button class="btn btn-primary login-btn" id="loginBtn" onclick="doLogin()">Войти</button>
+    <div class="hint" style="margin-top:12px;text-align:center">Доступ по учётным записям. Если нет доступа — обратитесь к администратору.</div>
+  </form>
+</div>
+
 <div class="app">
   <aside class="sidebar">
     <div class="logo">
@@ -166,8 +212,11 @@
       <div class="nav-item active" id="nav-clients" onclick="navTo('clients')">👥&nbsp; Клиенты</div>
       <div class="nav-item" id="nav-matrix" onclick="navTo('matrix')">▦&nbsp; Общий документооборот</div>
       <div class="nav-item" id="nav-workpapers" onclick="navTo('workpapers')">🗒&nbsp; Рабочие документы</div>
+      <div class="nav-item" id="nav-planner" onclick="navTo('planner')">🗓&nbsp; Планер (календарь)</div>
       <div class="nav-item" id="nav-wizard" onclick="navTo('wizard')">🗎&nbsp; Создать документ</div>
       <div class="nav-item" id="nav-repo" onclick="navTo('repo')">🗀&nbsp; Репозиторий</div>
+      <div class="nav-item admin-only" id="nav-users" onclick="navTo('users')" style="display:none">👤&nbsp; Пользователи</div>
+      <div class="nav-item admin-only" id="nav-journal" onclick="navTo('journal')" style="display:none">📋&nbsp; Журнал действий</div>
       <div class="nav-item" id="nav-settings" onclick="navTo('settings')">⚙&nbsp; Настройки</div>
     </nav>
     <div class="sidebar-foot" id="sidebarFoot">DocFlow</div>
@@ -179,9 +228,16 @@
         <h1 id="topbar-title">Клиенты</h1>
         <div class="crumbs" id="topbar-crumbs">Главная · Клиенты</div>
       </div>
-      <div class="user-chip">
-        <div class="avatar">АД</div>
-        <div>Администратор<br><span style="font-size:11px" id="topOrg">ООО «САИ»</span></div>
+      <div class="user-chip user-menu">
+        <div class="avatar" id="userAvatar">··</div>
+        <div style="cursor:pointer" onclick="toggleUserMenu(event)" id="userChipName">Вход…<br><span style="font-size:11px" id="topOrg">ООО «САИ»</span></div>
+        <div class="user-menu-pop" id="userMenuPop">
+          <div class="um-name" id="umName">—</div>
+          <div class="um-item" onclick="changePasswordForm()">🔑 Сменить пароль</div>
+          <div class="um-item admin-only" id="umUsers" onclick="navTo('users');hideUserMenu()" style="display:none">👤 Управление пользователями</div>
+          <div class="um-item admin-only" id="umJournal" onclick="navTo('journal');hideUserMenu()" style="display:none">📋 Журнал действий</div>
+          <div class="um-item" onclick="doLogout()">🚪 Выйти</div>
+        </div>
       </div>
     </div>
 
@@ -336,6 +392,75 @@
         </div>
       </section>
 
+      <!-- ЭКРАН: ПЛАНЕР (КАЛЕНДАРЬ ЗАДАЧ) -->
+      <section class="screen" id="screen-planner">
+        <div class="page-head">
+          <div><h2>Планер — календарь задач</h2><div class="sub">Общие задачи команды: ответственный, участники, время и дедлайн</div></div>
+          <button class="btn btn-primary" onclick="taskForm(null, calState.sel)">＋ Новая задача</button>
+        </div>
+        <div class="card">
+          <div class="toolbar" style="margin-bottom:10px">
+            <button class="btn btn-sm" onclick="calMove(-1)">←</button>
+            <b id="calTitle" style="font-size:15px;min-width:170px;text-align:center"></b>
+            <button class="btn btn-sm" onclick="calMove(1)">→</button>
+            <button class="btn btn-sm" onclick="calToday()">Сегодня</button>
+            <div class="spacer"></div>
+            <select class="mini" id="calFilterUser" onchange="loadPlanner()"><option value="">Все пользователи</option></select>
+            <select class="mini" id="calFilterStatus" onchange="renderCalendar()">
+              <option value="">Все статусы</option><option>план</option><option>в работе</option><option>готово</option><option>отменена</option>
+            </select>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+        </div>
+        <div class="card">
+          <h2 id="calDayTitle">Задачи выбранного дня</h2>
+          <div id="calDayList"></div>
+        </div>
+      </section>
+
+      <!-- ЭКРАН: ПОЛЬЗОВАТЕЛИ (админ) -->
+      <section class="screen admin-only" id="screen-users" style="display:none">
+        <div class="page-head">
+          <div><h2>Пользователи</h2><div class="sub">Создание, редактирование и контроль учётных записей · права администратора есть только у «admin»</div></div>
+          <button class="btn btn-primary" onclick="userForm()">＋ Новый пользователь</button>
+        </div>
+        <div class="card" style="padding:0">
+          <div style="overflow-x:auto">
+          <table class="table">
+            <thead><tr><th>Логин / имя</th><th>Роль</th><th>Статус</th><th>Последний вход</th><th>Последнее действие</th><th>Действий в журнале</th><th>Открытых задач</th><th style="width:260px">Управление</th></tr></thead>
+            <tbody id="usersBody"></tbody>
+          </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ЭКРАН: ЖУРНАЛ ДЕЙСТВИЙ (админ) -->
+      <section class="screen admin-only" id="screen-journal" style="display:none">
+        <div class="page-head">
+          <div><h2>Журнал посещений и действий</h2><div class="sub">Кто, когда заходил в приложение и что делал</div></div>
+        </div>
+        <div class="card">
+          <div class="toolbar" style="margin-bottom:0">
+            <select class="mini" id="jFilterUser" onchange="loadJournal()"><option value="">Все пользователи</option></select>
+            <label class="sub">с&nbsp;<input type="date" id="jFrom" class="status-select" onchange="loadJournal()"></label>
+            <label class="sub">по&nbsp;<input type="date" id="jTo" class="status-select" onchange="loadJournal()"></label>
+            <div class="search"><input type="text" id="jSearch" placeholder="Поиск по журналу…" oninput="renderJournal()"></div>
+            <button class="btn btn-sm" onclick="journalVisits()">📈 Посещаемость по дням</button>
+            <div class="spacer"></div>
+            <span class="sub" id="jCount"></span>
+          </div>
+        </div>
+        <div class="card" id="jVisitsCard" style="display:none;padding:0"></div>
+        <div class="card" style="padding:0">
+          <div style="overflow-x:auto">
+          <table class="table">
+            <thead><tr><th style="width:160px">Дата / время</th><th style="width:130px">Пользователь</th><th style="width:150px">Действие</th><th style="width:120px">Объект</th><th>Подробности</th></tr></thead>
+            <tbody id="jBody"></tbody>
+          </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ЭКРАН: НАСТРОЙКИ -->
       <section class="screen" id="screen-settings">
         <div class="page-head">
@@ -397,7 +522,11 @@ const state = {
   docContractId: null, matrixYear: null, doctypes: [],
   wiz: { clientId: null, contractId: null, client: null, contracts: [] },
   wp: { rows: [], contracts: [], people: { assistants: [], reviewers: [] } },
+  auth: { token: null, user: null },
+  users: [], journal: [], visitsShown: false,
+  planner: { tasks: [], options: [], clients: [], contracts: [] },
 };
+const calState = { y: new Date().getFullYear(), m: new Date().getMonth(), sel: isoDay(new Date()), tasks: [] };
 const STATUSES = ['готов', 'подписан', 'отправлен', 'получен'];
 const STATUS_CLS = { 'готов': 'b-blue', 'подписан': 'b-amber', 'отправлен': 'b-violet', 'получен': 'b-green' };
 const WP_STATUSES = ['не начат', 'в работе', 'на проверке', 'доработка', 'принят'];
@@ -429,6 +558,20 @@ function toast(msg, isErr) {
 async function call(name, ...args) {
   const r = await api[name](...args);
   if (r && r.error) throw new Error(r.error);
+  return r;
+}
+/* Каждый защищённый запрос передаёт токен сессии первым аргументом.
+   На Python-стороне методы принимают (token, data=None) — поэтому лишние
+   args собираем в объект данных, один args — как есть, ноль — только токен. */
+async function acall(name, ...args) {
+  let r;
+  if (args.length === 0) r = await api[name](state.auth.token);
+  else if (args.length === 1) r = await api[name](state.auth.token, args[0]);
+  else r = await api[name](state.auth.token, Object.assign({}, ...args));
+  if (r && r.error) {
+    if (/Требуется вход/.test(r.error)) { showLoginScreen(); }
+    throw new Error(r.error);
+  }
   return r;
 }
 function kvRow(k, v) { return '<div class="k">' + esc(k) + '</div><div class="v">' + (v || '<span class="sub">—</span>') + '</div>'; }
@@ -500,7 +643,7 @@ function bindFioAutofill(form, fioName, genName, shortName) {
     const v = (fio.value || '').trim();
     if (!v) return;
     try {
-      const r = await call('inflect_fio', v);
+      const r = await acall('inflect_fio', v);
       if (gen && (gen.dataset.auto === '1' || !gen.value.trim())) { gen.value = r.gen; gen.dataset.auto = '1'; }
       if (sh && (sh.dataset.auto === '1' || !sh.value.trim())) { sh.value = r.short; sh.dataset.auto = '1'; }
     } catch (e) { /* тихо */ }
@@ -514,7 +657,7 @@ function bindOriginalsAuto(form) {
   if (!od || !orf) return;
   od.addEventListener('change', async () => {
     if (od.value && !orf.value) {
-      try { orf.value = await call('calc_originals_deadline', od.value); } catch (e) { /* тихо */ }
+      try { orf.value = await acall('calc_originals_deadline', od.value); } catch (e) { /* тихо */ }
     }
   });
 }
@@ -553,7 +696,7 @@ function navTo(id) { showScreen(id); }
 
 /* ============ КЛИЕНТЫ ============ */
 async function loadClients() {
-  state.clients = await call('clients_list');
+  state.clients = await acall('clients_list');
   document.getElementById('clientsCount').textContent = 'Всего: ' + state.clients.length;
   renderClientsTable();
 }
@@ -626,14 +769,14 @@ function groupFields(fields) {
 async function clientForm(cid) {
   let c = {};
   if (cid) {
-    const data = await call('client_get', cid);
+    const data = await acall('client_get', cid);
     c = data.client;
   }
   openModal(cid ? 'Карточка клиента — редактирование' : 'Новый клиент', groupFields(clientFields(c)), {
     wide: true,
     onReady: (form) => bindFioAutofill(form, 'director_fio', 'director_fio_gen', 'director_fio_short'),
     onSave: async (vals) => {
-      const r = await call('client_save', vals);
+      const r = await acall('client_save', vals);
       toast('Клиент сохранён. Папка: ' + r.folder);
       if (cid && state.client && state.client.client.id === cid) await openClient(cid);
       else await loadClients();
@@ -643,7 +786,7 @@ async function clientForm(cid) {
 
 async function openClient(cid) {
   try {
-    state.client = await call('client_get', cid);
+    state.client = await acall('client_get', cid);
     const c = state.client.client;
     document.getElementById('clientTitle').innerHTML = esc(c.name_short || c.name_full) +
       (state.client.contracts.length ? ' <span class="chip">' + esc(state.client.contracts[0].work_type || '') + '</span>' : '');
@@ -719,7 +862,7 @@ async function renderDocsTab() {
   }
   if (!state.docContractId || !cn.some(x => x.id === state.docContractId)) state.docContractId = cn[0].id;
   let rows;
-  try { rows = await call('contract_documents', state.docContractId); }
+  try { rows = await acall('contract_documents', state.docContractId); }
   catch (e) { wrap.innerHTML = '<div class="card"><div class="empty">' + esc(e.message) + '</div></div>'; return; }
   const contract = cn.find(x => x.id === state.docContractId);
   const opts = cn.map(x => '<option value="' + x.id + '"' + (x.id === state.docContractId ? ' selected' : '') + '>' +
@@ -760,7 +903,7 @@ async function renderDocsTab() {
 async function setStatus(docId) {
   const sel = document.getElementById('st-' + docId);
   try {
-    await call('doc_set_status', docId, sel.value);
+    await acall('doc_set_status', docId, sel.value);
     toast('Статус изменён: ' + sel.value);
     await renderDocsTab();
   } catch (e) { toast(e.message, true); }
@@ -768,17 +911,17 @@ async function setStatus(docId) {
 async function generateFor(contractId, typeId) {
   try {
     toast('Генерация…');
-    const r = await call('doc_generate', contractId, typeId);
+    const r = await acall('doc_generate', contractId, typeId);
     toast('Создано: ' + r.name);
     await renderDocsTab();
     wzShowOneResult(r);
   } catch (e) { toast(e.message, true); }
 }
-async function openDoc(docId) { try { await call('doc_open', docId); } catch (e) { toast(e.message, true); } }
-async function openDocFolder(docId) { try { await call('doc_open_folder', docId); } catch (e) { toast(e.message, true); } }
-async function openClientFolder() { try { await call('client_open_folder', state.client.client.id); } catch (e) { toast(e.message, true); } }
+async function openDoc(docId) { try { await acall('doc_open', docId); } catch (e) { toast(e.message, true); } }
+async function openDocFolder(docId) { try { await acall('doc_open_folder', docId); } catch (e) { toast(e.message, true); } }
+async function openClientFolder() { try { await acall('client_open_folder', state.client.client.id); } catch (e) { toast(e.message, true); } }
 async function showHistory(docId) {
-  const h = await call('doc_history', docId);
+  const h = await acall('doc_history', docId);
   openModal('История статусов', h.length
     ? '<table class="table"><thead><tr><th>Когда</th><th>Статус</th><th>Комментарий</th><th>Кто</th></tr></thead><tbody>' +
       h.map(x => '<tr><td>' + esc(x.ts) + '</td><td>' + badge(x.status) + '</td><td>' + esc(x.note) + '</td><td>' + esc(x.author) + '</td></tr>').join('') +
@@ -800,12 +943,12 @@ async function contactForm(contactId) {
       { name: 'phone', label: 'Телефон', value: v.phone || '' },
       { name: 'email', label: 'E-mail', value: v.email || '' },
     ]) + '</div>', {
-    onSave: async (vals) => { await call('contact_save', vals); toast('Контакт сохранён'); renderClientTabs(); }
+    onSave: async (vals) => { await acall('contact_save', vals); toast('Контакт сохранён'); renderClientTabs(); }
   });
 }
 async function contactDelete(id) {
   if (!confirm('Удалить контакт?')) return;
-  await call('contact_delete', id);
+  await acall('contact_delete', id);
   toast('Контакт удалён');
   renderClientTabs();
 }
@@ -835,7 +978,7 @@ function contractFieldDefs(v, clientId) {
 async function contractForm(contractId) {
   const clientId = state.client.client.id;
   let v = {};
-  if (contractId) v = await call('contract_get', contractId);
+  if (contractId) v = await acall('contract_get', contractId);
   openModal(contractId ? 'Договор — редактирование' : 'Новый договор',
     '<div class="form-grid">' + fieldsHtml(contractFieldDefs(v, clientId)) + '</div>' +
     '<div class="hint" id="cfPrepayHint"></div>', {
@@ -853,9 +996,9 @@ async function contractForm(contractId) {
       upd();
     },
     onSave: async (vals) => {
-      await call('contract_save', vals);
+      await acall('contract_save', vals);
       toast('Договор сохранён');
-      state.client = await call('client_get', clientId);
+      state.client = await acall('client_get', clientId);
       renderClientTabs();
       if (contractId) { state.docContractId = contractId; }
     }
@@ -864,7 +1007,7 @@ async function contractForm(contractId) {
 
 /* ============ МАТРИЦА ============ */
 async function loadMatrix(year) {
-  const m = await call('matrix', year || null);
+  const m = await acall('matrix', year || null);
   state.matrixYear = year || null;
   const sel = document.getElementById('matrixYear');
   const years = ['all'].concat(m.years);
@@ -916,7 +1059,7 @@ function matrixStatus(clientId, contractId, docId, status, typeName) {
     '</div>', {
     saveLabel: 'Применить',
     onSave: async (vals) => {
-      await call('doc_set_status', docId, vals.status);
+      await acall('doc_set_status', docId, vals.status);
       toast('Статус изменён: ' + vals.status);
       await loadMatrix(state.matrixYear);
     }
@@ -925,7 +1068,7 @@ function matrixStatus(clientId, contractId, docId, status, typeName) {
 async function matrixGen(contractId, typeId) {
   try {
     toast('Генерация…');
-    const r = await call('doc_generate', contractId, typeId);
+    const r = await acall('doc_generate', contractId, typeId);
     toast('Создано: ' + r.name);
     await loadMatrix(state.matrixYear);
   } catch (e) { toast(e.message, true); }
@@ -933,12 +1076,12 @@ async function matrixGen(contractId, typeId) {
 
 /* ============ МАСТЕР ============ */
 async function loadWizard(presetClientId) {
-  const cl = await call('clients_list');
+  const cl = await acall('clients_list');
   state.wiz.clients = cl;
   const sel = document.getElementById('wzClient');
   sel.innerHTML = '<option value="">— выберите клиента —</option>' +
     cl.map(c => '<option value="' + c.id + '"' + (String(c.id) === String(presetClientId || '') ? ' selected' : '') + '>' + esc(c.name_short) + '</option>').join('');
-  const types = await call('doctypes_list');
+  const types = await acall('doctypes_list');
   state.doctypes = types;
   document.getElementById('wzTypes').innerHTML = types.map(t => {
     const on = t.is_active && t.template;
@@ -960,7 +1103,7 @@ async function wzClientChanged() {
   state.wiz.clientId = cid;
   const sel = document.getElementById('wzContract');
   if (!cid) { sel.innerHTML = '<option value="">— сначала выберите клиента —</option>'; document.getElementById('wzParamsCard').style.display = 'none'; wzRenderAuto(); return; }
-  const data = await call('client_get', cid);
+  const data = await acall('client_get', cid);
   state.wiz.client = data.client;
   state.wiz.contracts = data.contracts;
   sel.innerHTML = '<option value="new">＋ Новый договор…</option>' +
@@ -975,7 +1118,7 @@ async function wzContractChanged() {
   const card = document.getElementById('wzParamsCard');
   if (!state.wiz.clientId) { card.style.display = 'none'; return; }
   let contract = {};
-  if (state.wiz.contractId) contract = await call('contract_get', state.wiz.contractId) || {};
+  if (state.wiz.contractId) contract = await acall('contract_get', state.wiz.contractId) || {};
   const form = document.getElementById('wzParamsForm');
   form.innerHTML = '<div class="form-grid">' + fieldsHtml(contractFieldDefs(contract, state.wiz.clientId)) + '</div><div class="hint" id="wzPrepayHint"></div>';
   const upd = () => {
@@ -1016,14 +1159,14 @@ async function wzGenerate() {
   if (!checked.length) { toast('Отметьте хотя бы один документ', true); return; }
   const vals = collectForm(document.getElementById('wzParamsForm'));
   try {
-    const saved = await call('contract_save', vals);
+    const saved = await acall('contract_save', vals);
     const contractId = saved.id;
     document.getElementById('wzResultCard').style.display = 'block';
     const resEl = document.getElementById('wzResult');
     resEl.innerHTML = '<div class="sub">Генерация…</div>';
     const results = [];
     for (const tid of checked) {
-      try { results.push(await call('doc_generate', contractId, tid)); }
+      try { results.push(await acall('doc_generate', contractId, tid)); }
       catch (e) { results.push({ error: e.message, name: 'тип #' + tid }); }
     }
     resEl.innerHTML = results.map(r => r.error
@@ -1033,7 +1176,7 @@ async function wzGenerate() {
       '<div class="row"><button class="btn btn-sm" onclick="navTo(\'matrix\')">К матрице →</button></div>';
     wzStep(3);
     // обновим список договоров в селекторе
-    const data = await call('client_get', state.wiz.clientId);
+    const data = await acall('client_get', state.wiz.clientId);
     state.wiz.contracts = data.contracts;
     const sel = document.getElementById('wzContract');
     sel.innerHTML = '<option value="new">＋ Новый договор…</option>' +
@@ -1049,13 +1192,13 @@ function wzShowOneResult(r) {
   document.getElementById('wzResult').innerHTML =
     '<div class="success-box">✓ <b>' + esc(r.name) + '</b><br><span style="font-size:12px">' + esc(r.file) + '</span><br>' + badge('готов') + '</div>';
 }
-async function wzOpenFile(docId) { try { await call('doc_open', docId); } catch (e) { toast(e.message, true); } }
+async function wzOpenFile(docId) { try { await acall('doc_open', docId); } catch (e) { toast(e.message, true); } }
 
 /* ============ РАБОЧИЕ ДОКУМЕНТЫ ============ */
 async function loadWorkpapers() {
-  const rows = await call('workpapers_list');
-  const contracts = await call('contracts_all');
-  const people = await call('workpaper_people');
+  const rows = await acall('workpapers_list');
+  const contracts = await acall('contracts_all');
+  const people = await acall('workpaper_people');
   state.wp = { rows, contracts, people };
   const fc = document.getElementById('wpFilterContract');
   const cur = fc.value;
@@ -1108,16 +1251,16 @@ function renderWorkpapers() {
   sum.textContent = 'Показано: ' + rows.length + ' — ' + WP_STATUSES.filter(s => cnt[s]).map(s => s + ': ' + cnt[s]).join(', ');
 }
 async function wpSetStatus(id, status) {
-  try { await call('workpaper_set_status', id, status); toast('Статус: ' + status); await loadWorkpapers(); }
+  try { await acall('workpaper_set_status', id, status); toast('Статус: ' + status); await loadWorkpapers(); }
   catch (e) { toast(e.message, true); }
 }
 async function wpDelete(id) {
   if (!confirm('Удалить рабочий документ?')) return;
-  try { await call('workpaper_delete', id); toast('Удалено'); await loadWorkpapers(); }
+  try { await acall('workpaper_delete', id); toast('Удалено'); await loadWorkpapers(); }
   catch (e) { toast(e.message, true); }
 }
 async function wpForm(id) {
-  if (!state.wp.contracts.length) { try { state.wp.contracts = await call('contracts_all'); state.wp.people = await call('workpaper_people'); } catch (e) { /* тихо */ } }
+  if (!state.wp.contracts.length) { try { state.wp.contracts = await acall('contracts_all'); state.wp.people = await acall('workpaper_people'); } catch (e) { /* тихо */ } }
   if (!state.wp.contracts.length) { toast('Сначала создайте клиента и договор', true); return; }
   const v = (id ? state.wp.rows.find(x => x.id === id) : null) || {};
   const opts = state.wp.contracts.map(c => ({ v: String(c.id), l: (c.client_name || '') + ' — ' + (c.number || '(без номера)') + (c.year ? ' · ' + c.year : '') }));
@@ -1140,7 +1283,7 @@ async function wpForm(id) {
       if (rv) rv.setAttribute('list', 'wpReviewers');
     },
     onSave: async (vals) => {
-      await call('workpaper_save', vals);
+      await acall('workpaper_save', vals);
       toast('Рабочий документ сохранён');
       await loadWorkpapers();
     }
@@ -1150,7 +1293,7 @@ async function wpForm(id) {
 /* ============ РЕПОЗИТОРИЙ ============ */
 async function loadRepo() {
   document.getElementById('repoRoot').textContent = (state.info ? state.info.clients_dir : 'clients\\') + ' — папки клиентов создаются автоматически';
-  const tree = await call('repo_tree');
+  const tree = await acall('repo_tree');
   const el = document.getElementById('repoTree');
   if (!tree.length) {
     el.innerHTML = '<div class="empty">Папок пока нет</div>';
@@ -1165,7 +1308,7 @@ async function loadRepo() {
 }
 async function repoSelect(rel) {
   document.querySelectorAll('#repoTree .t-item').forEach(x => x.classList.toggle('active', x.dataset.rel === rel));
-  const r = await call('repo_files', rel);
+  const r = await acall('repo_files', rel);
   const el = document.getElementById('repoFiles');
   el.innerHTML = '<div class="row between" style="padding:14px 16px"><h2 style="margin:0">' + esc(rel) + '</h2>' +
     '<button class="btn btn-sm" data-rel="' + esc(rel) + '" onclick="repoOpen(this.dataset.rel)">🗗 Открыть в проводнике</button></div>' +
@@ -1176,8 +1319,8 @@ async function repoSelect(rel) {
         '</tbody></table>'
       : '<div class="empty">В папке пока нет файлов</div>');
 }
-async function repoOpen(rel) { try { await call('repo_open', rel || ''); } catch (e) { toast(e.message, true); } }
-async function repoOpenFile(rel) { try { await call('repo_open_file', rel); } catch (e) { toast(e.message, true); } }
+async function repoOpen(rel) { try { await acall('repo_open', rel || ''); } catch (e) { toast(e.message, true); } }
+async function repoOpenFile(rel) { try { await acall('repo_open_file', rel); } catch (e) { toast(e.message, true); } }
 
 /* ============ НАСТРОЙКИ ============ */
 const EXEC_FIELDS = [
@@ -1211,12 +1354,12 @@ async function loadSettings() {
 async function saveSettings() {
   const vals = collectForm(document.getElementById('settingsForm'));
   delete vals['_templates_dir'];
-  await call('settings_save', vals);
+  await acall('settings_save', vals);
   state.settings = await call('settings_get');
   toast('Настройки сохранены');
 }
 async function renderDoctypes() {
-  const types = await call('doctypes_list');
+  const types = await acall('doctypes_list');
   state.doctypes = types;
   document.getElementById('doctypesBody').innerHTML = types.map(t =>
     '<tr' + (t.is_active ? '' : ' style="opacity:.6"') + '>' +
@@ -1234,17 +1377,17 @@ async function toggleDoctype(id, on) {
   const t = state.doctypes.find(x => x.id === id);
   if (!t) return;
   try {
-    await call('doctype_save', Object.assign({}, t, { is_active: on ? 1 : 0 }));
+    await acall('doctype_save', Object.assign({}, t, { is_active: on ? 1 : 0 }));
     toast('Тип «' + t.name + '» ' + (on ? 'включён' : 'отключён'));
     await renderDoctypes();
   } catch (e) { toast(e.message, true); await renderDoctypes(); }
 }
 async function uploadTemplate(id) {
   try {
-    const r = await call('pick_template_file');
+    const r = await acall('pick_template_file');
     if (r.cancelled) return;
     const t = state.doctypes.find(x => x.id === id);
-    await call('doctype_save', Object.assign({}, t, { template: r.name, is_active: 1 }));
+    await acall('doctype_save', Object.assign({}, t, { template: r.name, is_active: 1 }));
     toast('Шаблон загружен: ' + r.name);
     await renderDoctypes();
   } catch (e) { toast(e.message, true); }
@@ -1264,23 +1407,23 @@ async function doctypeForm(id) {
     onReady: (form) => {
       document.getElementById('dtPick').onclick = async () => {
         try {
-          const r = await call('pick_template_file');
+          const r = await acall('pick_template_file');
           if (!r.cancelled && r.name) form.querySelector('[name=template]').value = r.name;
         } catch (e) { toast(e.message, true); }
       };
     },
     onSave: async (vals) => {
-      await call('doctype_save', Object.assign({}, vals, { is_active: vals.template ? 1 : 0 }));
+      await acall('doctype_save', Object.assign({}, vals, { is_active: vals.template ? 1 : 0 }));
       toast('Тип документа сохранён');
       await renderDoctypes();
     }
   });
 }
-async function templatesOpenFolder() { try { await call('templates_open_folder'); } catch (e) { toast(e.message, true); } }
+async function templatesOpenFolder() { try { await acall('templates_open_folder'); } catch (e) { toast(e.message, true); } }
 async function backupNow() {
   try {
     toast('Создание бэкапа…');
-    const r = await call('backup_now');
+    const r = await acall('backup_now');
     toast('Бэкап создан: ' + r.path + ' (' + r.size_mb + ' МБ)');
   } catch (e) { toast(e.message, true); }
 }
