@@ -44,48 +44,91 @@ class AuthError(Exception):
     """Не авторизован / нет прав."""
 
 
+_API_INSTANCE = None  # единственный экземпляр Api (нужен для pywebview-вызовов)
+
+_NO_TOKEN_METHODS = {'login', 'logout', 'session_get', 'app_info', 'settings_get'}
+
+
+def _normalize_args(args):
+    """pywebview может вызвать методы js_api без self.
+
+    Если первый аргумент не экземпляр Api — подставляем глобальный инстанс;
+    если это pywebview-обёртка (args[0].api) — берём инстанс из неё.
+    Лишний токен сессии, переданный туда, где метод его не ждёт, снимается.
+    """
+    args = list(args)
+    if args and isinstance(args[0], Api):          # обычный вызов Python-метода
+        return args
+    if args and hasattr(args[0], 'api') and isinstance(getattr(args[0], 'api'), Api):
+        args = [args[0].api] + args[1:]            # обёртка pywebview с .api
+    elif _API_INSTANCE is not None:                # вызов из pywebview без self
+        args.insert(0, _API_INSTANCE)
+    name = getattr(_API_INSTANCE, '_cur_method', '') if _API_INSTANCE else ''
+    if len(args) >= 2 and isinstance(args[1], str) and name in _NO_TOKEN_METHODS:
+        args.pop(1)                                # frontend прислал токен «на всякий случай»
+    return args
+
+
 def api_method(fn):
+    name = fn.__name__
+
     @functools.wraps(fn)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(*args, **kwargs):
+        args = _normalize_args(args)
+        self = args[0]
+        prev = getattr(self, '_cur_method', None)
+        self._cur_method = name
         try:
-            return fn(self, *args, **kwargs)
+            return fn(*args, **kwargs)
         except AuthError as e:
             return {'error': str(e) or 'Требуется вход в систему'}
         except Exception as e:
             traceback.print_exc()
             return {'error': f'{type(e).__name__}: {e}'}
+        finally:
+            self._cur_method = prev
     return wrapper
 
 
 def needs_auth(fn):
     """Метод доступен только вошедшему пользователю."""
     @functools.wraps(fn)
-    def wrapper(self, *args, **kwargs):
-        if not self.user:
+    def wrapper(*args, **kwargs):
+        args = _normalize_args(args)
+        if not args[0].user:
             raise AuthError('Требуется вход в систему')
-        return fn(self, *args, **kwargs)
+        return fn(*args, **kwargs)
     return wrapper
 
 
 def admin_only(fn):
     """Метод доступен только администратору."""
     @functools.wraps(fn)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(*args, **kwargs):
+        args = _normalize_args(args)
+        self = args[0]
         if not self.user:
             raise AuthError('Требуется вход в систему')
         if self.user['role'] != 'admin':
             raise AuthError('Раздел доступен только администратору')
-        return fn(self, *args, **kwargs)
+        return fn(*args, **kwargs)
     return wrapper
 
 
-
 def session_token(fn):
-    """Первым аргументом frontend передаёт токен сессии; восстанавливаем пользователя."""
+    """Первым аргументом frontend передаёт токен сессии; восстанавливаем пользователя.
+
+    Лишние токены (для методов, которые их не ждут) снимаются в _normalize_args.
+    """
     @functools.wraps(fn)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(*args, **kwargs):
+        args = _normalize_args(args)
+        self = args[0]
+        token = ''
+        if len(args) >= 2 and isinstance(args[1], str):
+            token = args.pop(1)
         self.set_session(token)
-        return fn(self, *args, **kwargs)
+        return fn(*args, **kwargs)
     return wrapper
 
 
@@ -111,9 +154,12 @@ def _as_int(data, key, default=None):
 
 class Api:
     def __init__(self):
+        global _API_INSTANCE
         self._window = None
         self._token = None      # токен текущей сессии (frontend -> backend)
         self.user = None        # строка из таблицы users
+        self._cur_method = ''
+        _API_INSTANCE = self
         db.init_db()
 
     def set_window(self, window):
@@ -181,7 +227,7 @@ class Api:
                 'role': u['role'], 'is_admin': u['role'] == 'admin'}
 
     @api_method
-    def session_get(self):
+    def session_get(self, token=None):
         """Проверка сохранённой сессии при запуске окна."""
         if token is not None:
             self.set_session(token)
@@ -207,7 +253,6 @@ class Api:
         self._log('password_change_own', 'user', self.user['id'], 'смена собственного пароля')
         return {'ok': True}
 
-    @needs_auth
     @api_method
     @session_token
     def users_options(self):
@@ -217,6 +262,8 @@ class Api:
                 for r in rows]
 
     @admin_only
+    @api_method
+    @session_token
     def users_list(self):
         rows = db.q("""SELECT u.id, u.login, u.name, u.role, u.is_active, u.note,
                               u.created_at, u.last_login,
@@ -231,6 +278,8 @@ class Api:
         return rows
 
     @admin_only
+    @api_method
+    @session_token
     def user_save(self, data):
         data = data or {}
         login = str(data.get('login') or '').strip().lower()
@@ -272,6 +321,8 @@ class Api:
         return {'ok': True, 'id': uid}
 
     @admin_only
+    @api_method
+    @session_token
     def user_set_active(self, uid, active):
         u = db.user_by_id(uid)
         if not u:
@@ -286,6 +337,8 @@ class Api:
         return {'ok': True}
 
     @admin_only
+    @api_method
+    @session_token
     def user_reset_password(self, uid, password):
         u = db.user_by_id(uid)
         if not u:
@@ -299,6 +352,8 @@ class Api:
         return {'ok': True}
 
     @admin_only
+    @api_method
+    @session_token
     def user_delete(self, uid):
         u = db.user_by_id(uid)
         if not u:
@@ -311,6 +366,8 @@ class Api:
         return {'ok': True}
 
     @admin_only
+    @api_method
+    @session_token
     def audit_list(self, data=None):
         data = data or {}
         login = str(data.get('login') or '').strip()
@@ -338,8 +395,12 @@ class Api:
         return rows[:limit]
 
     @admin_only
+    @api_method
+    @session_token
     def audit_visits(self, days=30):
         """Посещения: входы/выходы по дням и пользователям."""
+        if isinstance(days, str):
+            days = 30
         days = _as_int({'d': days}, 'd', 30) or 30
         return db.q(f"""SELECT login, substr(ts,1,10) day,
                                SUM(action='login') logins,
@@ -1174,32 +1235,6 @@ class Api:
         size = sum(f.stat().st_size for f in dst.rglob('*') if f.is_file())
         self._log('backup', 'backup', ts, f'{round(size / 1024 / 1024, 1)} МБ')
         return {'ok': True, 'path': str(dst), 'size_mb': round(size / 1024 / 1024, 1)}
-
-    # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
-
-    # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
-
-    # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
-
-    # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
-
-    def user_set_active_ex(self, uid, active):
-        return self.user_set_active(uid, active)
-
-    def user_reset_password_ex(self, uid, password):
-        return self.user_reset_password(uid, password)
-
-    def task_set_status_ex(self, tid, status):
-        return self.task_set_status(tid, status)
-
-    def workpaper_set_status_ex(self, wp_id, status):
-        return self.workpaper_set_status(wp_id, status)
-
-    def doc_generate_ex(self, contract_id, type_id):
-        return self.doc_generate(contract_id, type_id)
-
-    def doc_set_status_ex(self, doc_id, status):
-        return self.doc_set_status(doc_id, status)
 
     # ---------- алиасы для pywebview: методы с несколькими аргументами ----------
 
