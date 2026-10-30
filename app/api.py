@@ -3,6 +3,7 @@
 import csv
 import functools
 import json
+import math
 import os
 import re
 import shutil
@@ -13,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 import db
+import backup as backup_service
 import generator as gen
 from config import (APP_VERSION, BACKUPS_DIR, CLIENTS_DIR, DATA_DIR, DB_PATH,
                     ROOT, STATUS_ORDER, TEMPLATES_DIR, WP_STATUSES)
@@ -31,6 +33,7 @@ CONTRACT_FIELDS = ['number', 'date_iso', 'city', 'work_type', 'subject', 'year',
 CONTACT_FIELDS = ['role', 'fio', 'position', 'phone', 'email']
 
 EVENT_STATUSES = ['открыта', 'выполнена']
+CONTRACT_STATUSES = ['действует', 'завершён', 'расторгнут']
 
 
 def api_method(fn):
@@ -84,14 +87,84 @@ def _as_int(data, key, default=None):
         return default
 
 
+def _user_maps():
+    """Справочник пользователей: ID, логин и отображаемое имя."""
+    rows = db.q('SELECT id, login, name FROM users')
+    by_id = {r['id']: (r['name'] or r['login']) for r in rows}
+    by_value = {}
+    for r in rows:
+        for value in (r['login'], r['name']):
+            value = (value or '').strip()
+            if value:
+                by_value.setdefault(value, set()).add(r['id'])
+    return by_id, by_value
+
+
+def _resolve_user(value, by_id, by_value):
+    """Принимает user.id, логин или имя и возвращает (id, имя)."""
+    raw = str(value or '').strip()
+    if not raw:
+        return None, ''
+    try:
+        uid = int(raw)
+        if uid in by_id:
+            return uid, by_id[uid]
+    except (TypeError, ValueError):
+        pass
+    ids = by_value.get(raw, set())
+    if len(ids) == 1:
+        uid = next(iter(ids))
+        return uid, by_id[uid]
+    return None, raw
+
+
+def _event_display_rows(rows):
+    by_id, _ = _user_maps()
+    for row in rows:
+        if row.get('assignee_id') in by_id:
+            row['assignee'] = by_id[row['assignee_id']]
+        if row.get('created_by_id') in by_id:
+            row['created_by'] = by_id[row['created_by_id']]
+        ids = []
+        for value in str(row.get('participant_ids') or '').split(','):
+            try:
+                uid = int(value.strip())
+            except (TypeError, ValueError):
+                continue
+            if uid in by_id:
+                ids.append(uid)
+        if ids:
+            row['participants'] = ', '.join(by_id[uid] for uid in ids)
+    return rows
+
+
+def _workpaper_display_rows(rows):
+    by_id, _ = _user_maps()
+    for row in rows:
+        if row.get('assistant_id') in by_id:
+            row['assistant'] = by_id[row['assistant_id']]
+        if row.get('reviewer_id') in by_id:
+            row['reviewer'] = by_id[row['reviewer_id']]
+    return rows
+
+
 class Api:
     def __init__(self):
         self._window = None
         self._user = None
         db.init_db()
+        self._restore_session()
 
     def set_window(self, window):
         self._window = window
+
+    def _restore_session(self):
+        u = db.remembered_user()
+        if u:
+            self._user = {'id': u['id'], 'login': u['login'],
+                          'name': u['name'] or u['login'], 'role': u['role']}
+        else:
+            db.clear_remembered_user()
 
     # ================= сессия / авторизация =================
 
@@ -119,13 +192,43 @@ class Api:
         self._user = {'id': u['id'], 'login': u['login'],
                       'name': u['name'] or u['login'], 'role': u['role']}
         db.ex('UPDATE users SET last_login=? WHERE id=?', (db.now(), u['id']))
+        db.remember_user(u['id'])
         self._log('login', '', f"Вход в приложение (роль: {u['role']})")
         return {'logged_in': True, **self._user}
+
+    @api_method
+    def register(self, user_login, name, password, password2):
+        """Самостоятельная регистрация обычной пользовательской учётной записи."""
+        login = (user_login or '').strip()
+        display_name = (name or '').strip() or login
+        password = password or ''
+        password2 = password2 or ''
+
+        if not re.fullmatch(r'[A-Za-zА-Яа-яЁё0-9_.@+-]{3,64}', login):
+            return {'error': 'Логин: от 3 до 64 символов, только буквы, цифры и . _ @ + -'}
+        if len(password) < 4:
+            return {'error': 'Пароль должен быть не короче 4 символов'}
+        if password != password2:
+            return {'error': 'Пароли не совпадают'}
+        if db.q1('SELECT id FROM users WHERE login=?', (login,)):
+            return {'error': f'Логин «{login}» уже занят'}
+
+        # Встроенный admin не заменяем и не удаляем: это резервная
+        # администраторская учётная запись для владельцев приложения.
+        db.ex('INSERT INTO users(login,name,password_hash,role,is_active,created_at) '
+              'VALUES(?,?,?,?,1,?)',
+              (login, display_name, db.hash_password(password), 'user', db.now()))
+        role = 'user'
+        details = 'Самостоятельная регистрация пользователя'
+
+        db.log_action(login, 'register', login, details)
+        return {'ok': True, 'login': login, 'name': display_name, 'role': role}
 
     @api_method
     def logout(self):
         if self._user:
             self._log('logout')
+        db.clear_remembered_user()
         self._user = None
         return {'ok': True}
 
@@ -319,11 +422,19 @@ class Api:
         if not name_full and not name_short:
             return {'error': 'Укажите наименование клиента'}
         cid = _as_int(data, 'id')
+        current = None
+        if cid:
+            current = db.q1('SELECT * FROM clients WHERE id=?', (cid,))
+            if not current:
+                return {'error': 'Клиент не найден'}
         values = {f: (data.get(f) or '').strip() if isinstance(data.get(f), str)
                   else (data.get(f) if data.get(f) is not None else '')
                   for f in CLIENT_FIELDS}
-        if not values.get('folder'):
-            values['folder'] = gen.sanitize_folder(name_short or name_full)
+        # Папка — технический идентификатор. После создания клиента
+        # сохраняем её, чтобы переименование компании не потеряло файлы.
+        if current and current.get('folder'):
+            values['folder'] = current['folder']
+        values['folder'] = gen.normalize_folder(values.get('folder'), name_short or name_full)
         display = values.get('name_short') or name_full
         if cid:
             sets = ', '.join(f'{f}=?' for f in CLIENT_FIELDS)
@@ -401,25 +512,56 @@ class Api:
         if not client_id:
             return {'error': 'Не указан клиент'}
         cid = _as_int(data, 'id')
+        current = None
+        if cid:
+            current = db.q1('SELECT * FROM contracts WHERE id=?', (cid,))
+            if not current:
+                return {'error': 'Договор не найден'}
+            # Договор нельзя незаметно перенести к другому клиенту.
+            client_id = current['client_id']
+        if not db.q1('SELECT id FROM clients WHERE id=?', (client_id,)):
+            return {'error': 'Клиент не найден'}
         values = {}
         for f in CONTRACT_FIELDS:
             v = data.get(f)
             values[f] = v if v is not None else ''
+
+        for field, label in (
+            ('date_iso', 'дату договора'),
+            ('stage1_start', 'начало этапа 1'), ('stage1_end', 'окончание этапа 1'),
+            ('stage2_start', 'начало этапа 2'), ('stage2_end', 'окончание этапа 2'),
+            ('opinion_deadline', 'дату выдачи заключения'),
+            ('originals_deadline', 'дату оригиналов отчётности'),
+        ):
+            if str(values.get(field) or '').strip() and not gen.parse_iso(values[field]):
+                return {'error': f'Проверьте {label}: дата указана неверно'}
+
         values['year'] = _as_int(data, 'year',
                                  gen.parse_iso(values.get('date_iso')).year
                                  if gen.parse_iso(values.get('date_iso')) else datetime.now().year)
+        if values['year'] < 1900 or values['year'] > 2200:
+            return {'error': 'Период должен быть в пределах 1900–2200 года'}
         try:
             values['price'] = float(values.get('price') or 0)
         except (TypeError, ValueError):
-            values['price'] = 0.0
+            return {'error': 'Стоимость должна быть числом'}
+        if not math.isfinite(values['price']) or values['price'] < 0:
+            return {'error': 'Стоимость не может быть отрицательной'}
         try:
             values['prepay_pct'] = float(values.get('prepay_pct') or 0)
         except (TypeError, ValueError):
-            values['prepay_pct'] = 0.0
+            return {'error': 'Предоплата должна быть числом от 0 до 100'}
+        if not math.isfinite(values['prepay_pct']) or not 0 <= values['prepay_pct'] <= 100:
+            return {'error': 'Предоплата должна быть в пределах от 0 до 100%'}
         if not str(values.get('service_term') or '').strip():
             values['service_term'] = '20'
         else:
             values['service_term'] = str(values['service_term']).strip()
+            if not re.fullmatch(r'\d+', values['service_term']) or int(values['service_term']) <= 0:
+                return {'error': 'Срок оказания услуг должен быть положительным числом рабочих дней'}
+        values['status'] = values.get('status') or 'действует'
+        if values['status'] not in CONTRACT_STATUSES:
+            return {'error': f'Неизвестный статус договора: {values["status"]}'}
         # originals_deadline: автоматически за 5 рабочих дней до выдачи АЗ, если не задан
         if not str(values.get('originals_deadline') or '').strip() \
                 and str(values.get('opinion_deadline') or '').strip():
@@ -432,6 +574,16 @@ class Api:
         if new_number:
             values['number'] = self._suggest_number(values['year'])
             db.bump_seq_from_number(values['number'])
+        duplicate = db.q1('SELECT id FROM contracts WHERE number=? AND number != "" '
+                          'AND id != ?', (values['number'], cid or -1))
+        if duplicate:
+            return {'error': f'Договор с номером «{values["number"]}» уже существует'}
+
+        if current and (current['number'], current['date_iso'], current['year']) != \
+                (values['number'], values['date_iso'], values['year']):
+            existing_doc = db.q1('SELECT id FROM documents WHERE contract_id=? LIMIT 1', (cid,))
+            if existing_doc:
+                return {'error': 'Номер, дата и период договора нельзя менять после создания документов: это может разорвать связи с файлами'}
         if cid:
             sets = ', '.join(f'{f}=?' for f in CONTRACT_FIELDS)
             db.ex(f'UPDATE contracts SET {sets} WHERE id=?',
@@ -728,7 +880,7 @@ class Api:
             sql += ' WHERE w.contract_id=?'
             params = (contract_id,)
         sql += " ORDER BY (w.status='принят'), w.due_iso='', w.due_iso, w.id"
-        return db.q(sql, params)
+        return _workpaper_display_rows(db.q(sql, params))
 
     @api_method
     @require_user
@@ -740,24 +892,31 @@ class Api:
         contract_id = _as_int(data, 'contract_id')
         if not contract_id:
             return {'error': 'Выберите договор'}
+        if not db.q1('SELECT id FROM contracts WHERE id=?', (contract_id,)):
+            return {'error': 'Выбранный договор не найден'}
         status = (data.get('status') or 'не начат').strip()
         if status not in WP_STATUSES:
             status = 'не начат'
         wid = _as_int(data, 'id')
-        vals = (contract_id, title,
-                (data.get('assistant') or '').strip(),
-                (data.get('reviewer') or '').strip(),
-                (data.get('due_iso') or '').strip(),
-                status, (data.get('note') or '').strip())
+        if data.get('due_iso') and not gen.parse_iso(data.get('due_iso')):
+            return {'error': 'Плановый срок указан неверно'}
+        if wid and not db.q1('SELECT id FROM workpapers WHERE id=?', (wid,)):
+            return {'error': 'Рабочий документ не найден'}
+        by_id, by_value = _user_maps()
+        assistant_id, assistant = _resolve_user(data.get('assistant'), by_id, by_value)
+        reviewer_id, reviewer = _resolve_user(data.get('reviewer'), by_id, by_value)
+        vals = (contract_id, title, assistant, reviewer, assistant_id, reviewer_id,
+                (data.get('due_iso') or '').strip(), status, (data.get('note') or '').strip())
         now = db.now()
         if wid:
             db.ex('UPDATE workpapers SET contract_id=?, title=?, assistant=?, reviewer=?, '
-                  'due_iso=?, status=?, note=?, updated_at=? WHERE id=?',
+                  'assistant_id=?, reviewer_id=?, due_iso=?, status=?, note=?, updated_at=? WHERE id=?',
                   vals + (now, wid))
             self._log('workpaper_update', title, f'Изменён рабочий документ (id={wid})')
         else:
             wid = db.ex('INSERT INTO workpapers(contract_id,title,assistant,reviewer,'
-                        'due_iso,status,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',
+                        'assistant_id,reviewer_id,due_iso,status,note,created_at,updated_at) '
+                        'VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                         vals + (now, now))
             self._log('workpaper_create', title,
                       f'Добавлен рабочий документ: {vals[2] or "—"} / контроль {vals[3] or "—"}')
@@ -785,10 +944,10 @@ class Api:
     @api_method
     @require_user
     def workpaper_people(self):
-        a = [r['assistant'] for r in
-             db.q("SELECT DISTINCT assistant FROM workpapers WHERE assistant != '' ORDER BY assistant")]
-        rv = [r['reviewer'] for r in
-              db.q("SELECT DISTINCT reviewer FROM workpapers WHERE reviewer != '' ORDER BY reviewer")]
+        rows = _workpaper_display_rows(
+            db.q('SELECT assistant, reviewer, assistant_id, reviewer_id FROM workpapers'))
+        a = sorted({r['assistant'] for r in rows if r.get('assistant')})
+        rv = sorted({r['reviewer'] for r in rows if r.get('reviewer')})
         return {'assistants': a, 'reviewers': rv}
 
     # ================= календарь-планер =================
@@ -796,7 +955,7 @@ class Api:
     @api_method
     @require_user
     def events_list(self):
-        return db.q('SELECT * FROM events ORDER BY date_iso, due_time, id')
+        return _event_display_rows(db.q('SELECT * FROM events ORDER BY date_iso, due_time, id'))
 
     @api_method
     @require_user
@@ -808,32 +967,60 @@ class Api:
         date_iso = (data.get('date_iso') or '').strip()
         if not gen.parse_iso(date_iso):
             return {'error': 'Укажите дату задачи'}
+        due_time = (data.get('due_time') or '').strip()
+        if due_time and (not re.fullmatch(r'\d{2}:\d{2}', due_time) or
+                         not 0 <= int(due_time[:2]) <= 23 or not 0 <= int(due_time[3:]) <= 59):
+            return {'error': 'Время задачи указано неверно'}
         status = (data.get('status') or 'открыта').strip()
         if status not in EVENT_STATUSES:
             status = 'открыта'
         eid = _as_int(data, 'id')
+        current = None
+        if eid:
+            current = db.q1('SELECT * FROM events WHERE id=?', (eid,))
+            if not current:
+                return {'error': 'Задача не найдена'}
+            is_admin = self._user.get('role') == 'admin'
+            is_author = (current.get('created_by_id') == self._user.get('id') or
+                         (not current.get('created_by_id') and current.get('created_by') == self._name()))
+            if not is_admin and not is_author:
+                return {'error': 'Изменить задачу может только её автор или администратор'}
+
+        by_id, by_value = _user_maps()
+        assignee_id, assignee = _resolve_user(data.get('assignee'), by_id, by_value)
+        participant_ids = []
+        participant_names = []
+        for part in (data.get('participants') or '').split(','):
+            uid, display = _resolve_user(part, by_id, by_value)
+            if display:
+                participant_names.append(display)
+            if uid and uid not in participant_ids:
+                participant_ids.append(uid)
         vals = (title,
                 (data.get('description') or '').strip(),
                 date_iso,
-                (data.get('due_time') or '').strip(),
-                (data.get('assignee') or '').strip(),
-                (data.get('participants') or '').strip(),
+                due_time,
+                assignee,
+                ', '.join(participant_names),
+                assignee_id,
+                ','.join(str(uid) for uid in participant_ids),
                 status)
         now = db.now()
         if eid:
             db.ex('UPDATE events SET title=?, description=?, date_iso=?, due_time=?, '
-                  'assignee=?, participants=?, status=?, updated_at=? WHERE id=?',
+                  'assignee=?, participants=?, assignee_id=?, participant_ids=?, '
+                  'status=?, updated_at=? WHERE id=?',
                   vals + (now, eid))
             self._log('event_update', title, f'Изменена задача на {gen.fmt_dot(date_iso)} (id={eid})')
         else:
             eid = db.ex('INSERT INTO events(title,description,date_iso,due_time,assignee,'
-                        'participants,status,created_by,created_at,updated_at) '
-                        'VALUES(?,?,?,?,?,?,?,?,?,?)',
-                        vals + (self._name(), now, now))
+                        'participants,assignee_id,participant_ids,status,created_by,'
+                        'created_by_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                        vals + (self._name(), self._user['id'], now, now))
             self._log('event_create', title,
                       f'Добавлена задача на {gen.fmt_dot(date_iso)}'
-                      + (f', время {vals[3]}' if vals[3] else '')
-                      + (f', ответственный {vals[4]}' if vals[4] else ''))
+                      + (f', время {due_time}' if due_time else '')
+                      + (f', ответственный {assignee}' if assignee else ''))
         return {'ok': True, 'id': eid}
 
     @api_method
@@ -854,7 +1041,9 @@ class Api:
         e = db.q1('SELECT * FROM events WHERE id=?', (event_id,))
         if not e:
             return {'error': 'Задача не найдена'}
-        if self._user.get('role') != 'admin' and e['created_by'] != self._name():
+        is_author = (e.get('created_by_id') == self._user.get('id') or
+                     (not e.get('created_by_id') and e.get('created_by') == self._name()))
+        if self._user.get('role') != 'admin' and not is_author:
             return {'error': 'Удалить задачу может только её автор или администратор'}
         db.ex('DELETE FROM events WHERE id=?', (event_id,))
         self._log('event_delete', e['title'], f'Удалена задача (id={event_id})')
@@ -955,20 +1144,7 @@ class Api:
     @api_method
     @require_user
     def backup_now(self):
-        import sqlite3
-        ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
-        dst = BACKUPS_DIR / ts
-        dst.mkdir(parents=True, exist_ok=True)
-        src = sqlite3.connect(str(DB_PATH))
-        out = sqlite3.connect(str(dst / 'docflow.db'))
-        with out:
-            src.backup(out)
-        out.close()
-        src.close()
-        if CLIENTS_DIR.exists():
-            shutil.copytree(str(CLIENTS_DIR), str(dst / 'clients'), dirs_exist_ok=True)
-        if TEMPLATES_DIR.exists():
-            shutil.copytree(str(TEMPLATES_DIR), str(dst / 'templates'), dirs_exist_ok=True)
-        size = sum(f.stat().st_size for f in dst.rglob('*') if f.is_file())
-        self._log('backup', '', f'Создан бэкап: {dst} ({round(size / 1024 / 1024, 1)} МБ)')
-        return {'ok': True, 'path': str(dst), 'size_mb': round(size / 1024 / 1024, 1)}
+        result = backup_service.create_backup()
+        self._log('backup', '', f'Создан и проверен бэкап: {result["path"]} '
+                  f'({result["size_mb"]} МБ)')
+        return {'ok': True, **result}

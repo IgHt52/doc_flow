@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Генерация .docx из шаблонов (docxtpl): контекст, даты, суммы, файлы."""
+import os
 import re
-import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -76,19 +76,43 @@ def num_str(x):
 # ---------- папки и имена файлов ----------
 
 _BAD_CHARS = re.compile(r'[«»"\\/:*?<>|\r\n\t]+')
+_WINDOWS_RESERVED = {'CON', 'PRN', 'AUX', 'NUL',
+                     *(f'COM{i}' for i in range(1, 10)),
+                     *(f'LPT{i}' for i in range(1, 10))}
 
 
 def sanitize_folder(name):
     s = _BAD_CHARS.sub('_', (name or '').strip())
     s = re.sub(r'\s+', '_', s)
     s = re.sub(r'_+', '_', s).strip('._')
-    return s or 'Клиент'
+    s = s or 'Клиент'
+    if s.upper().split('.')[0] in _WINDOWS_RESERVED:
+        s = '_' + s
+    return s
+
+
+def normalize_folder(name, fallback='Клиент'):
+    """Оставляет только безопасное имя одной папки внутри clients."""
+    raw = str(name or '').strip()
+    if not raw:
+        raw = str(fallback or 'Клиент').strip()
+    if (raw in ('.', '..') or raw.endswith((' ', '.')) or
+            _BAD_CHARS.search(raw) or
+            raw.upper().split('.')[0] in _WINDOWS_RESERVED):
+        return sanitize_folder(raw)
+    return raw
 
 
 def client_folder_path(client):
-    folder = (client.get('folder') or '').strip() or sanitize_folder(
-        client.get('name_short') or client.get('name_full'))
-    return CLIENTS_DIR / folder
+    folder = normalize_folder(
+        client.get('folder'), client.get('name_short') or client.get('name_full'))
+    root = CLIENTS_DIR.resolve()
+    candidate = (CLIENTS_DIR / folder).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        candidate = root / sanitize_folder(folder)
+    return candidate
 
 
 def safe_filename(s):
@@ -216,5 +240,13 @@ def render_document(client, contract, doctype, settings, dest_dir=None):
     fname = build_filename(doctype.get('filename_mask'), doctype,
                            contract.get('number'), contract.get('date_iso'))
     out = dest_dir / fname
-    tpl.save(str(out))
+    # Сначала создаём временный файл, затем атомарно заменяем итоговый.
+    # Так при сбое не останется повреждённого .docx.
+    tmp = out.with_name('.' + out.name + '.tmp')
+    try:
+        tpl.save(str(tmp))
+        os.replace(str(tmp), str(out))
+    finally:
+        if tmp.exists():
+            tmp.unlink()
     return out
