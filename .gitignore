@@ -1,0 +1,10 @@
+# Технические файлы Python
+__pycache__/
+*.py[cod]
+
+# Локальные данные приложения и пользовательские документы
+data/*.db*
+clients/*
+!clients/README.txt
+backups/*
+!backups/README.txt

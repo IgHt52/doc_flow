@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS workpapers(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   contract_id INTEGER, title TEXT DEFAULT '',
   assistant TEXT DEFAULT '', reviewer TEXT DEFAULT '',
+  assistant_id INTEGER, reviewer_id INTEGER,
   due_iso TEXT DEFAULT '', status TEXT DEFAULT 'не начат',
   note TEXT DEFAULT '', created_at TEXT, updated_at TEXT
 );
@@ -83,13 +84,20 @@ CREATE TABLE IF NOT EXISTS events(
   title TEXT DEFAULT '', description TEXT DEFAULT '',
   date_iso TEXT DEFAULT '', due_time TEXT DEFAULT '',
   assignee TEXT DEFAULT '', participants TEXT DEFAULT '',
+  assignee_id INTEGER, participant_ids TEXT DEFAULT '',
   status TEXT DEFAULT 'открыта',
-  created_by TEXT DEFAULT '', created_at TEXT, updated_at TEXT
+  created_by TEXT DEFAULT '', created_by_id INTEGER,
+  created_at TEXT, updated_at TEXT
 );
 CREATE TABLE IF NOT EXISTS audit_log(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT, user TEXT DEFAULT '', action TEXT DEFAULT '',
   object TEXT DEFAULT '', details TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS app_session(
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  user_id INTEGER,
+  created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_id);
 CREATE INDEX IF NOT EXISTS idx_docs_contract ON documents(contract_id);
@@ -196,6 +204,22 @@ def log_action(user, action, obj='', details=''):
         pass
 
 
+def remembered_user():
+    """Возвращает последнего активного пользователя для автологина."""
+    return q1('SELECT u.* FROM app_session s JOIN users u ON u.id=s.user_id '
+              'WHERE s.id=1 AND u.is_active=1')
+
+
+def remember_user(user_id):
+    ex('INSERT INTO app_session(id,user_id,created_at) VALUES(1,?,?) '
+       'ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, '
+       'created_at=excluded.created_at', (user_id, now()))
+
+
+def clear_remembered_user():
+    ex('DELETE FROM app_session WHERE id=1')
+
+
 def init_db():
     ensure_dirs()
     with conn() as c:
@@ -225,6 +249,50 @@ def init_db():
 
 def _migrate(c):
     """Миграции базы при обновлении приложения."""
+    # v1.3: стабильные связи календаря и рабочих документов с users.id.
+    # Старые текстовые имена сохраняются для совместимости и отображения.
+    for table, column, definition in (
+        ('workpapers', 'assistant_id', 'INTEGER'),
+        ('workpapers', 'reviewer_id', 'INTEGER'),
+        ('events', 'assignee_id', 'INTEGER'),
+        ('events', 'participant_ids', "TEXT DEFAULT ''"),
+        ('events', 'created_by_id', 'INTEGER'),
+    ):
+        table_cols = {r[1] for r in c.execute(f'PRAGMA table_info({table})')}
+        if column not in table_cols:
+            c.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+
+    users = c.execute('SELECT id, login, name FROM users').fetchall()
+    value_to_ids = {}
+    for u in users:
+        for value in (u['login'], u['name']):
+            value = (value or '').strip()
+            if value:
+                value_to_ids.setdefault(value, set()).add(u['id'])
+
+    def user_id(value):
+        ids = value_to_ids.get((value or '').strip(), set())
+        return next(iter(ids)) if len(ids) == 1 else None
+
+    for e in c.execute('SELECT id, assignee, participants, created_by, '
+                       'assignee_id, participant_ids, created_by_id FROM events').fetchall():
+        assignee_id = e['assignee_id'] or user_id(e['assignee'])
+        created_by_id = e['created_by_id'] or user_id(e['created_by'])
+        participant_ids = e['participant_ids'] or ','.join(
+            str(uid) for uid in (user_id(x) for x in (e['participants'] or '').split(','))
+            if uid is not None)
+        if assignee_id or created_by_id or participant_ids:
+            c.execute('UPDATE events SET assignee_id=?, participant_ids=?, created_by_id=? '
+                      'WHERE id=?', (assignee_id, participant_ids, created_by_id, e['id']))
+
+    for w in c.execute('SELECT id, assistant, reviewer, assistant_id, reviewer_id '
+                       'FROM workpapers').fetchall():
+        assistant_id = w['assistant_id'] or user_id(w['assistant'])
+        reviewer_id = w['reviewer_id'] or user_id(w['reviewer'])
+        if assistant_id or reviewer_id:
+            c.execute('UPDATE workpapers SET assistant_id=?, reviewer_id=? WHERE id=?',
+                      (assistant_id, reviewer_id, w['id']))
+
     # v1.1: колонка service_term в договорах
     cols = {r[1] for r in c.execute('PRAGMA table_info(contracts)')}
     if 'service_term' not in cols:

@@ -134,13 +134,17 @@
   .back-link:hover{text-decoration:underline}
 
   .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:flex-start;justify-content:center;z-index:100;overflow:auto;padding:40px 16px}
+  .modal-overlay.registration-overlay{z-index:400}
   .modal{background:#fff;border-radius:12px;width:640px;max-width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}
   .modal.wide{width:860px}
+  .modal.registration{width:1080px;min-height:620px}
   .modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)}
   .modal-head h3{font-size:15.5px;font-weight:700}
   .modal-x{border:none;background:none;font-size:16px;cursor:pointer;color:var(--muted);padding:4px 8px;border-radius:6px}
   .modal-x:hover{background:var(--gray-bg)}
   .modal-body{padding:18px 20px 6px;max-height:66vh;overflow:auto}
+  .modal.registration .modal-body{min-height:500px;max-height:none;display:flex;align-items:center;justify-content:center}
+  .registration-fields{width:560px;max-width:100%}
   .modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
   .form-grid .wide{grid-column:1/-1}
@@ -396,6 +400,7 @@
               <div class="row" style="margin-top:12px">
                 <button type="button" class="btn" onclick="backupNow()">🗐 Сделать бэкап сейчас</button>
               </div>
+              <div class="hint" style="margin-top:8px">Восстановление: закройте приложение и запустите restore.bat в папке DocFlow.</div>
             </div>
           </div>
         </form>
@@ -503,11 +508,12 @@
     <h2>Вход в приложение</h2>
     <div class="login-err" id="loginErr"></div>
     <form onsubmit="return false">
-      <div class="field"><label>Логин</label><input id="loginUser" autocomplete="off" placeholder="admin" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div class="field"><label>Логин</label><input id="loginUser" autocomplete="off" placeholder="ваш логин" onkeydown="if(event.key==='Enter')doLogin()"></div>
       <div class="field"><label>Пароль</label><input id="loginPass" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;padding:10px" onclick="doLogin()">Войти</button>
+      <button type="button" class="btn" style="width:100%;justify-content:center;padding:10px;margin-top:8px" onclick="registerForm()">Регистрация</button>
     </form>
-    <div class="login-sub" id="loginSub">Первый вход администратора: логин <b>admin</b>.<br>Смените пароль после первого входа (клик по профилю справа вверху).</div>
+    <div class="login-sub" id="loginSub">Первый запуск? Нажмите «Регистрация» и создайте свою учётную запись.</div>
   </div>
 </div>
 
@@ -593,9 +599,10 @@ function openModal(title, bodyHtml, opts) {
   opts = opts || {};
   closeModal();
   const ov = document.createElement('div');
-  ov.className = 'modal-overlay'; ov.id = 'modalOverlay';
+  ov.className = 'modal-overlay' + (opts.registration ? ' registration-overlay' : ''); ov.id = 'modalOverlay';
+  const modalClass = 'modal' + (opts.wide ? ' wide' : '') + (opts.registration ? ' registration' : '');
   ov.innerHTML =
-    '<div class="modal' + (opts.wide ? ' wide' : '') + '">' +
+    '<div class="' + modalClass + '">' +
     '<div class="modal-head"><h3>' + esc(title) + '</h3><button class="modal-x" onclick="closeModal()">✕</button></div>' +
     '<form id="modalForm" class="modal-body" onsubmit="return false">' + bodyHtml + '</form>' +
     '<div class="modal-foot">' +
@@ -742,7 +749,8 @@ function clientFields(c) {
     { name: 'director_fio_gen', label: 'ФИО (в лице …)', value: g('director_fio_gen'), hint: 'Родительный падеж — заполняется автоматически, можно поправить' },
     { name: 'director_fio_short', label: 'ФИО сокращённо', value: g('director_fio_short'), hint: 'Для подписи (И.Н. Колесников) — заполняется автоматически' },
     { name: 'director_basis', label: 'Действует на основании', value: g('director_basis') || 'Устава' },
-    { name: 'folder', label: 'Папка в репозитории', wide: true, value: g('folder'), hint: 'Если пусто — будет создана по названию' },
+    { name: 'folder', label: 'Папка в репозитории', wide: true, value: g('folder'), readonly: !!c.id,
+      hint: c.id ? 'Папка закреплена за клиентом, чтобы переименование не потеряло документы' : 'Если пусто — будет создана по названию' },
     { name: 'note', label: 'Примечание', type: 'textarea', wide: true, value: g('note') },
   ];
 }
@@ -955,8 +963,8 @@ function contractFieldDefs(v, clientId) {
   return [
     { name: 'id', type: 'hidden', value: v.id || '' },
     { name: 'client_id', type: 'hidden', value: clientId },
-    { name: 'number', label: 'Номер договора', value: v.number || '', hint: 'Пусто — предложится автоматически', id: 'cfNumber' },
-    { name: 'date_iso', label: 'Дата договора', type: 'date', value: v.date_iso || '' },
+    { name: 'number', label: 'Номер договора', value: v.number || '', hint: 'Пусто — предложится автоматически. После создания документов номер не меняется', id: 'cfNumber' },
+    { name: 'date_iso', label: 'Дата договора', type: 'date', value: v.date_iso || '', hint: 'После создания документов дата не меняется' },
     { name: 'city', label: 'Город', value: v.city || s.city_default || 'Красноярск' },
     { name: 'year', label: 'Период (год аудита/услуг)', type: 'number', value: v.year || yearNow },
     { name: 'work_type', label: 'Вид работ', type: 'select', options: WORK_TYPES, value: v.work_type || 'Аудит' },
@@ -1418,7 +1426,8 @@ async function backupNow() {
   try {
     toast('Создание бэкапа…');
     const r = await call('backup_now');
-    toast('Бэкап создан: ' + r.path + ' (' + r.size_mb + ' МБ)');
+    toast('Бэкап создан и проверен: ' + r.path + ' (' + r.size_mb + ' МБ)' +
+      (r.removed ? ' · удалено старых: ' + r.removed : ''));
   } catch (e) { toast(e.message, true); }
 }
 
@@ -1443,6 +1452,25 @@ async function doLogin() {
     document.getElementById('loginPass').value = '';
     await afterLogin(r);
   } catch (e) { err.textContent = String(e); err.style.display = 'block'; }
+}
+function registerForm() {
+  openModal('Регистрация нового пользователя',
+    '<div class="registration-fields">' + fieldsHtml([
+      { name: 'login', label: 'Логин *', wide: true, placeholder: 'Например: roman' },
+      { name: 'password', label: 'Пароль * (не короче 4 символов)', type: 'password' },
+      { name: 'password2', label: 'Повторите пароль', type: 'password' },
+    ]) + '</div>', {
+      registration: true,
+      saveLabel: 'ОК',
+      onSave: async (vals) => {
+        const r = await call('register', vals.login, vals.login, vals.password, vals.password2);
+        document.getElementById('loginUser').value = r.login;
+        document.getElementById('loginPass').value = vals.password;
+        closeModal();
+        await doLogin();
+        return false;
+      }
+    });
 }
 async function afterLogin(sess) {
   state.session = sess;
@@ -1598,30 +1626,46 @@ async function eventForm(id, presetDate) {
   const e = id ? state.cal.events.find(x => x.id === id) : null;
   const v = e || { date_iso: presetDate || todayIso(), status: 'открыта' };
   if (!state.cal.users.length) { try { state.cal.users = await call('users_brief'); } catch (err) { state.cal.users = []; } }
-  const users = state.cal.users.map(u => u.name);
-  const parts = String(v.participants || '').split(',').map(s => s.trim()).filter(Boolean);
-  const opts = [{ v: '', l: '— не назначен —' }].concat(users.map(n => ({ v: n, l: n })));
-  const canDelete = e && ((state.session || {}).role === 'admin' || e.created_by === (state.session || {}).name);
-  openModal(id ? 'Задача — редактирование' : 'Новая задача',
+  const users = state.cal.users;
+  const assigneeValue = v.assignee_id
+    ? String(v.assignee_id)
+    : String((users.find(u => u.name === v.assignee) || {}).id || '');
+  const parts = v.participant_ids
+    ? String(v.participant_ids).split(',').map(s => s.trim()).filter(Boolean)
+    : String(v.participants || '').split(',').map(s => {
+        const found = users.find(u => u.name === s.trim());
+        return found ? String(found.id) : '';
+      }).filter(Boolean);
+  const opts = [{ v: '', l: '— не назначен —' }].concat(users.map(u => ({ v: String(u.id), l: u.name })));
+  const canEdit = !e || ((state.session || {}).role === 'admin' ||
+    String(e.created_by_id || '') === String((state.session || {}).id || '') ||
+    (!e.created_by_id && e.created_by === (state.session || {}).name));
+  const canDelete = e && canEdit;
+  openModal(!e ? 'Новая задача' : (canEdit ? 'Задача — редактирование' : 'Задача — просмотр'),
     '<div class="form-grid">' + fieldsHtml([
       { name: 'id', type: 'hidden', value: v.id || '' },
       { name: 'title', label: 'Задача / событие *', wide: true, value: v.title || '', placeholder: 'Например: созвон с клиентом по оригиналам отчётности' },
       { name: 'date_iso', label: 'Дата *', type: 'date', value: String(v.date_iso || '').slice(0, 10) },
       { name: 'due_time', label: 'Время / дедлайн', type: 'time', value: v.due_time || '', hint: 'Необязательно, например 14:30' },
-      { name: 'assignee', label: 'Ответственный', type: 'select', options: opts, value: v.assignee || '' },
+      { name: 'assignee', label: 'Ответственный', type: 'select', options: opts, value: assigneeValue },
       { name: 'status', label: 'Статус', type: 'select', options: ['открыта', 'выполнена'], value: v.status || 'открыта' },
       { name: 'description', label: 'Описание', type: 'textarea', wide: true, value: v.description || '' },
     ]) + '</div>' +
     '<div class="field"><label>Участники</label><div style="max-height:130px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px">' +
-    (users.length ? users.map(n => '<label class="checkline" style="padding:5px 8px;margin-bottom:3px;border:none"><input type="checkbox" class="evPart" value="' + esc(n) + '"' +
-      (parts.includes(n) ? ' checked' : '') + '> ' + esc(n) + '</label>').join('') : '<span class="sub">Нет других пользователей</span>') +
+    (users.length ? users.map(u => '<label class="checkline" style="padding:5px 8px;margin-bottom:3px;border:none"><input type="checkbox" class="evPart" value="' + String(u.id) + '"' +
+      (parts.includes(String(u.id)) ? ' checked' : '') + '> ' + esc(u.name) + '</label>').join('') : '<span class="sub">Нет других пользователей</span>') +
     '</div></div>' +
     (e ? '<div class="hint">Добавил(а): ' + esc(e.created_by || '—') + ' · ' + esc(String(e.created_at || '').slice(0, 16)) + '</div>' : '') +
     (canDelete ? '<div class="row" style="margin-top:10px"><button type="button" class="btn btn-danger" onclick="evDelete(' + e.id + ')">🗑 Удалить задачу</button></div>' : ''),
     {
       wide: true,
+      hideSave: !canEdit,
+      cancelLabel: canEdit ? 'Отмена' : 'Закрыть',
+      onReady: (form) => {
+        if (!canEdit) form.querySelectorAll('input, select, textarea').forEach(x => { x.disabled = true; });
+      },
       onSave: async (vals) => {
-        vals.participants = Array.from(document.querySelectorAll('.evPart:checked')).map(x => x.value).join(', ');
+        vals.participants = Array.from(document.querySelectorAll('.evPart:checked')).map(x => x.value).join(',');
         await call('event_save', vals);
         toast('Задача сохранена');
         await loadCalendar();
@@ -1637,6 +1681,7 @@ async function evDelete(id) {
 /* ============ АДМИНИСТРИРОВАНИЕ ============ */
 const ACTION_RU = {
   login: 'Вход', login_failed: 'Неудачный вход', logout: 'Выход',
+  register: 'Регистрация',
   client_create: 'Создан клиент', client_update: 'Изменён клиент',
   contact_create: 'Добавлен контакт', contact_update: 'Изменён контакт', contact_delete: 'Удалён контакт',
   contract_create: 'Создан договор', contract_update: 'Изменён договор',
