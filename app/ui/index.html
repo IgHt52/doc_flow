@@ -153,6 +153,41 @@
   .empty{padding:30px;text-align:center;color:var(--muted);font-size:13.5px}
   code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:12px}
   .status-select{padding:5px 8px;border:1px solid var(--border-dark);border-radius:6px;font-size:12.5px;background:#fff;font-family:inherit}
+
+  /* ===== Экран входа ===== */
+  .login-overlay{position:fixed;inset:0;background:linear-gradient(135deg,#1e2a3a 0%,#2b3c52 60%,#206bc4 130%);display:flex;align-items:center;justify-content:center;z-index:300}
+  .login-card{background:#fff;border-radius:14px;padding:34px 36px;width:380px;max-width:92%;box-shadow:0 24px 70px rgba(0,0,0,.4)}
+  .login-card .logo{justify-content:center;border:none;padding:0 0 14px;color:var(--text)}
+  .login-card h2{font-size:17px;text-align:center;margin-bottom:18px}
+  .login-err{display:none;background:var(--red-bg);color:#8f2f2f;border-radius:7px;padding:8px 12px;font-size:12.5px;margin-bottom:12px}
+  .login-sub{text-align:center;color:var(--muted);font-size:11.5px;margin-top:14px;line-height:1.5}
+
+  /* ===== Календарь ===== */
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:9px;overflow:hidden}
+  .cal-dow{background:#fafbfd;padding:7px 4px;text-align:center;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .cal-cell{background:#fff;min-height:96px;padding:5px 6px;cursor:pointer;position:relative;vertical-align:top}
+  .cal-cell:hover{background:#f6f9fd}
+  .cal-cell.other{background:#fbfbfd;color:#b6bdc7}
+  .cal-cell.other:hover{background:#f4f6fa}
+  .cal-daynum{font-size:12px;font-weight:600;margin-bottom:3px;display:inline-block;padding:1px 6px;border-radius:10px}
+  .cal-cell.today .cal-daynum{background:var(--primary);color:#fff}
+  .ev-chip{display:block;font-size:11px;line-height:1.3;padding:2px 6px;border-radius:5px;margin-bottom:2px;background:var(--blue-bg);color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;border-left:3px solid var(--blue)}
+  .ev-chip:hover{filter:brightness(.96)}
+  .ev-chip.done{background:var(--green-bg);color:var(--green);border-left-color:var(--green);text-decoration:line-through}
+  .ev-chip.overdue{background:var(--red-bg);color:var(--red);border-left-color:var(--red)}
+  .ev-more{font-size:10.5px;color:var(--muted);padding-left:6px;cursor:pointer}
+  .ev-more:hover{color:var(--primary)}
+  .ev-item{border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:12.5px}
+  .ev-item .ev-title{font-weight:600;font-size:13px}
+  .ev-item.done .ev-title{text-decoration:line-through;color:var(--muted)}
+  .ev-meta{color:var(--muted);font-size:11.5px;margin-top:3px;line-height:1.5}
+  .person-chip{display:inline-block;background:var(--gray-bg);border-radius:10px;padding:1px 8px;font-size:11px;color:var(--text);margin:1px 2px 1px 0}
+  .person-chip.me{background:var(--primary-light);color:var(--primary);font-weight:600}
+
+  /* ===== Админ-вкладки ===== */
+  .role-chip{display:inline-block;background:var(--amber-bg);color:#a5730c;border-radius:5px;padding:1px 7px;font-size:10.5px;font-weight:700}
+  .role-chip.user{background:var(--gray-bg);color:var(--muted)}
+  .log-act{font-family:Consolas,monospace;font-size:12px;background:#f0f2f5;border-radius:4px;padding:1px 6px}
 </style>
 </head>
 <body>
@@ -166,9 +201,11 @@
       <div class="nav-item active" id="nav-clients" onclick="navTo('clients')">👥&nbsp; Клиенты</div>
       <div class="nav-item" id="nav-matrix" onclick="navTo('matrix')">▦&nbsp; Общий документооборот</div>
       <div class="nav-item" id="nav-workpapers" onclick="navTo('workpapers')">🗒&nbsp; Рабочие документы</div>
+      <div class="nav-item" id="nav-calendar" onclick="navTo('calendar')">📅&nbsp; Календарь-планёр</div>
       <div class="nav-item" id="nav-wizard" onclick="navTo('wizard')">🗎&nbsp; Создать документ</div>
       <div class="nav-item" id="nav-repo" onclick="navTo('repo')">🗀&nbsp; Репозиторий</div>
       <div class="nav-item" id="nav-settings" onclick="navTo('settings')">⚙&nbsp; Настройки</div>
+      <div class="nav-item" id="nav-admin" onclick="navTo('admin')" style="display:none">🛡&nbsp; Администрирование</div>
     </nav>
     <div class="sidebar-foot" id="sidebarFoot">DocFlow</div>
   </aside>
@@ -179,9 +216,9 @@
         <h1 id="topbar-title">Клиенты</h1>
         <div class="crumbs" id="topbar-crumbs">Главная · Клиенты</div>
       </div>
-      <div class="user-chip">
-        <div class="avatar">АД</div>
-        <div>Администратор<br><span style="font-size:11px" id="topOrg">ООО «САИ»</span></div>
+      <div class="user-chip" style="cursor:pointer" onclick="userMenu()" title="Профиль: смена пароля, выход">
+        <div class="avatar" id="topAvatar">··</div>
+        <div><span id="topUserName">…</span><br><span style="font-size:11px" id="topUserRole"></span></div>
       </div>
     </div>
 
@@ -382,7 +419,95 @@
         </div>
       </section>
 
+      <!-- ЭКРАН: КАЛЕНДАРЬ-ПЛАНЁР -->
+      <section class="screen" id="screen-calendar">
+        <div class="page-head">
+          <div><h2>Календарь-планёр</h2><div class="sub">Общие задачи и события: дедлайны, ответственные, участники</div></div>
+          <button class="btn btn-primary" onclick="eventForm(null, todayIso())">＋ Добавить задачу</button>
+        </div>
+        <div class="row" style="align-items:flex-start">
+          <div style="flex:1;min-width:0">
+            <div class="card">
+              <div class="row between" style="margin-bottom:12px">
+                <div class="row" style="gap:6px">
+                  <button class="btn btn-sm" onclick="calShift(-1)">←</button>
+                  <button class="btn btn-sm" onclick="calToday()">Сегодня</button>
+                  <button class="btn btn-sm" onclick="calShift(1)">→</button>
+                </div>
+                <h2 id="calTitle" style="margin:0"></h2>
+                <span class="sub">клик по дню — добавить; клик по задаче — открыть</span>
+              </div>
+              <div class="cal-grid" id="calGrid"></div>
+            </div>
+          </div>
+          <div style="width:350px;flex-shrink:0">
+            <div class="card"><h2>Ближайшие задачи</h2><div id="calUpcoming"></div></div>
+            <div class="card"><h2>Мои задачи</h2><div id="calMine"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ЭКРАН: АДМИНИСТРИРОВАНИЕ -->
+      <section class="screen" id="screen-admin">
+        <div class="page-head">
+          <div><h2>Администрирование</h2><div class="sub">Пользователи и журнал действий — только для администратора</div></div>
+        </div>
+        <div class="tabs" id="adminTabs">
+          <div class="tab active" data-tab="ausers" onclick="adminTab('ausers')">Пользователи</div>
+          <div class="tab" data-tab="alog" onclick="adminTab('alog')">Журнал действий и посещений</div>
+        </div>
+        <div class="tabpane active" id="tab-ausers">
+          <div class="card" style="padding:0">
+            <div class="row between" style="padding:14px 16px">
+              <h2 style="margin:0">Пользователи приложения</h2>
+              <button class="btn btn-sm btn-primary" onclick="userForm()">＋ Новый пользователь</button>
+            </div>
+            <table class="table">
+              <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Активен</th><th>Создан</th><th>Последний вход</th><th style="width:90px"></th></tr></thead>
+              <tbody id="usersBody"></tbody>
+            </table>
+            <div class="hint" style="padding:10px 16px 14px">Пользователь без роли «админ» видит и делает всё, кроме этого раздела. Отключённый пользователь не может войти. Удаление не предусмотрено — вместо него отключение (журнал сохраняет историю).</div>
+          </div>
+        </div>
+        <div class="tabpane" id="tab-alog">
+          <div class="card" style="padding:0">
+            <div class="toolbar" style="padding:14px 16px 10px">
+              <select class="mini" id="logUser" onchange="renderAudit()"><option value="">Все пользователи</option></select>
+              <div class="search"><input type="text" id="logSearch" placeholder="Поиск по журналу…" oninput="renderAudit()"></div>
+              <div class="spacer"></div>
+              <button class="btn btn-sm" onclick="auditExport()">⇩ Экспорт в CSV</button>
+              <button class="btn btn-sm" onclick="loadAdmin(true)">↻ Обновить</button>
+            </div>
+            <div style="overflow-x:auto">
+            <table class="table">
+              <thead><tr><th style="width:140px">Дата/время</th><th style="width:140px">Пользователь</th><th style="width:150px">Действие</th><th style="width:200px">Объект</th><th>Подробности</th></tr></thead>
+              <tbody id="logBody"></tbody>
+            </table>
+            </div>
+            <div class="hint" style="padding:10px 16px 14px" id="logCount"></div>
+          </div>
+        </div>
+      </section>
+
     </div>
+  </div>
+</div>
+
+<!-- ЭКРАН ВХОДА -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="logo">
+      <div class="mark">D</div>
+      <div><b>DocFlow</b><small>документооборот</small></div>
+    </div>
+    <h2>Вход в приложение</h2>
+    <div class="login-err" id="loginErr"></div>
+    <form onsubmit="return false">
+      <div class="field"><label>Логин</label><input id="loginUser" autocomplete="off" placeholder="admin" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div class="field"><label>Пароль</label><input id="loginPass" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:10px" onclick="doLogin()">Войти</button>
+    </form>
+    <div class="login-sub" id="loginSub">Первый вход администратора: логин <b>admin</b>.<br>Смените пароль после первого входа (клик по профилю справа вверху).</div>
   </div>
 </div>
 
@@ -397,6 +522,9 @@ const state = {
   docContractId: null, matrixYear: null, doctypes: [],
   wiz: { clientId: null, contractId: null, client: null, contracts: [] },
   wp: { rows: [], contracts: [], people: { assistants: [], reviewers: [] } },
+  session: null,
+  cal: { y: new Date().getFullYear(), m: new Date().getMonth(), events: [], users: [] },
+  adm: { users: [], log: [] },
 };
 const STATUSES = ['готов', 'подписан', 'отправлен', 'получен'];
 const STATUS_CLS = { 'готов': 'b-blue', 'подписан': 'b-amber', 'отправлен': 'b-violet', 'получен': 'b-green' };
@@ -428,6 +556,7 @@ function toast(msg, isErr) {
 }
 async function call(name, ...args) {
   const r = await api[name](...args);
+  if (r && r.auth) { showLogin(); throw new Error(r.error || 'Требуется вход'); }
   if (r && r.error) throw new Error(r.error);
   return r;
 }
@@ -525,11 +654,17 @@ const TITLES = {
   client: ['Карточка клиента', 'Главная · Клиенты · карточка'],
   matrix: ['Общий документооборот', 'Главная · Матрица статусов'],
   workpapers: ['Рабочие документы', 'Главная · Готовность рабочих документов'],
+  calendar: ['Календарь-планёр', 'Главная · Общие задачи и события'],
   wizard: ['Создать документ', 'Главная · Мастер создания'],
   repo: ['Репозиторий', 'Главная · Файлы клиентов'],
   settings: ['Настройки', 'Главная · Администрирование'],
+  admin: ['Администрирование', 'Главная · Пользователи и журнал'],
 };
 async function showScreen(id) {
+  if (id === 'admin' && (!state.session || state.session.role !== 'admin')) {
+    toast('Раздел доступен только администратору', true);
+    return;
+  }
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-' + id).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -544,6 +679,8 @@ async function showScreen(id) {
     if (id === 'clients') await loadClients();
     if (id === 'matrix') await loadMatrix(state.matrixYear || null);
     if (id === 'workpapers') await loadWorkpapers();
+    if (id === 'calendar') await loadCalendar();
+    if (id === 'admin') await loadAdmin();
     if (id === 'wizard') await loadWizard(state.wiz.clientId);
     if (id === 'repo') await loadRepo();
     if (id === 'settings') await loadSettings();
@@ -1285,6 +1422,296 @@ async function backupNow() {
   } catch (e) { toast(e.message, true); }
 }
 
+/* ============ СЕССИЯ И ВХОД ============ */
+function showLogin(msg) {
+  document.getElementById('loginOverlay').style.display = 'flex';
+  const err = document.getElementById('loginErr');
+  if (msg) { err.textContent = msg; err.style.display = 'block'; }
+  else { err.style.display = 'none'; }
+  setTimeout(() => { const u = document.getElementById('loginUser'); if (u && !u.value) u.focus(); }, 120);
+}
+function hideLogin() { document.getElementById('loginOverlay').style.display = 'none'; }
+async function doLogin() {
+  const lg = document.getElementById('loginUser').value.trim();
+  const ps = document.getElementById('loginPass').value;
+  const err = document.getElementById('loginErr');
+  err.style.display = 'none';
+  if (!lg || !ps) { err.textContent = 'Введите логин и пароль'; err.style.display = 'block'; return; }
+  try {
+    const r = await api.login(lg, ps);
+    if (r && r.error) { err.textContent = r.error; err.style.display = 'block'; document.getElementById('loginPass').value = ''; return; }
+    document.getElementById('loginPass').value = '';
+    await afterLogin(r);
+  } catch (e) { err.textContent = String(e); err.style.display = 'block'; }
+}
+async function afterLogin(sess) {
+  state.session = sess;
+  hideLogin();
+  const initials = String(sess.name || sess.login || '??').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  document.getElementById('topAvatar').textContent = initials;
+  document.getElementById('topUserName').textContent = sess.name || sess.login;
+  document.getElementById('topUserRole').textContent = sess.role === 'admin' ? 'администратор' : 'пользователь';
+  document.getElementById('nav-admin').style.display = sess.role === 'admin' ? '' : 'none';
+  try {
+    state.info = await call('app_info');
+    state.settings = await call('settings_get');
+    document.getElementById('sidebarFoot').innerHTML =
+      'DocFlow v' + esc(state.info.version) + '<br>БД: ' + esc(state.info.db) +
+      '<br>Клиентов: ' + state.info.counts.clients + ' · Документов: ' + state.info.counts.documents;
+    await showScreen('clients');
+  } catch (e) { showFatal(e.message || String(e)); }
+}
+function userMenu() {
+  const s = state.session || {};
+  openModal('Профиль пользователя',
+    '<div class="kv">' +
+    kvRow('Имя', esc(s.name || '')) +
+    kvRow('Логин', esc(s.login || '')) +
+    kvRow('Роль', s.role === 'admin' ? '<span class="role-chip">администратор</span>' : '<span class="role-chip user">пользователь</span>') +
+    '</div>' +
+    '<div class="row" style="margin-top:16px">' +
+    '<button type="button" class="btn" onclick="closeModal();changePasswordForm()">🔑 Сменить пароль</button>' +
+    '<button type="button" class="btn btn-danger" onclick="doLogout()">⏻ Выйти из приложения</button>' +
+    '</div>',
+    { hideSave: true, cancelLabel: 'Закрыть' });
+}
+function changePasswordForm() {
+  openModal('Смена пароля', '<div class="form-grid">' + fieldsHtml([
+    { name: 'old_password', label: 'Текущий пароль', type: 'password', wide: true },
+    { name: 'new_password', label: 'Новый пароль (не короче 4 символов)', type: 'password', wide: true },
+    { name: 'new_password2', label: 'Повторите новый пароль', type: 'password', wide: true },
+  ]) + '</div>', {
+    saveLabel: 'Сменить',
+    onSave: async (vals) => {
+      if (vals.new_password !== vals.new_password2) { toast('Пароли не совпадают', true); return false; }
+      await call('change_password', vals.old_password, vals.new_password);
+      toast('Пароль изменён');
+    }
+  });
+}
+async function doLogout() {
+  try { await api.logout(); } catch (e) { /* игнор */ }
+  state.session = null;
+  window.location.reload();
+}
+
+/* ============ КАЛЕНДАРЬ-ПЛАНЁР ============ */
+const MONTHS_NOM = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+const DOWS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+function todayIso() { const d = new Date(); return isoOf(d.getFullYear(), d.getMonth(), d.getDate()); }
+function isoOf(y, m, d) { return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
+async function loadCalendar() {
+  state.cal.events = await call('events_list');
+  try { state.cal.users = await call('users_brief'); } catch (e) { state.cal.users = []; }
+  renderCalendar();
+}
+function evByDate(iso) { return state.cal.events.filter(e => String(e.date_iso || '').slice(0, 10) === iso); }
+function isOverdue(e) {
+  if (e.status === 'выполнена' || !e.date_iso) return false;
+  const t = todayIso();
+  const d = String(e.date_iso).slice(0, 10);
+  if (d < t) return true;
+  if (d === t && e.due_time) {
+    const n = new Date();
+    const hm = String(e.due_time).split(':');
+    return n.getHours() * 60 + n.getMinutes() > Number(hm[0]) * 60 + Number(hm[1] || 0);
+  }
+  return false;
+}
+function evChipHtml(e) {
+  const cls = e.status === 'выполнена' ? 'done' : (isOverdue(e) ? 'overdue' : '');
+  return '<span class="ev-chip ' + cls + '" onclick="event.stopPropagation();eventForm(' + e.id + ')" title="' +
+    esc((e.due_time ? e.due_time + ' ' : '') + e.title + (e.assignee ? ' — ' + e.assignee : '')) + '">' +
+    (e.due_time ? esc(e.due_time) + ' ' : '') + esc(e.title) + '</span>';
+}
+function renderCalendar() {
+  const y = state.cal.y, m = state.cal.m;
+  document.getElementById('calTitle').textContent = MONTHS_NOM[m] + ' ' + y;
+  const first = new Date(y, m, 1);
+  const startDow = (first.getDay() + 6) % 7; // Пн = 0
+  const today = todayIso();
+  let html = DOWS.map(d => '<div class="cal-dow">' + d + '</div>').join('');
+  for (let i = 0; i < 42; i++) {
+    const cur = new Date(y, m, 1 - startDow + i);
+    const iso = isoOf(cur.getFullYear(), cur.getMonth(), cur.getDate());
+    const cls = 'cal-cell' + (cur.getMonth() !== m ? ' other' : '') + (iso === today ? ' today' : '');
+    const evs = evByDate(iso);
+    const shown = evs.slice(0, 3).map(evChipHtml).join('');
+    const more = evs.length > 3
+      ? '<span class="ev-more" onclick="event.stopPropagation();dayModal(\'' + iso + '\')">+' + (evs.length - 3) + ' ещё…</span>' : '';
+    html += '<div class="' + cls + '" onclick="dayCellClick(\'' + iso + '\')">' +
+      '<span class="cal-daynum">' + cur.getDate() + '</span>' + shown + more + '</div>';
+  }
+  document.getElementById('calGrid').innerHTML = html;
+  renderUpcoming();
+}
+function isMine(e, me) {
+  if (!me) return false;
+  return e.assignee === me || e.created_by === me ||
+    String(e.participants || '').split(',').map(s => s.trim()).includes(me);
+}
+function evItemHtml(e) {
+  const me = (state.session || {}).name || '';
+  const overdue = isOverdue(e);
+  return '<div class="ev-item' + (e.status === 'выполнена' ? ' done' : '') + '">' +
+    '<div class="row between"><span class="ev-title" style="cursor:pointer" onclick="eventForm(' + e.id + ')">' + esc(e.title) + '</span>' +
+    (e.status === 'открыта' ? '<button type="button" class="btn btn-sm btn-ghost" title="Отметить выполненной" onclick="evDone(' + e.id + ')">✓</button>' : '<span class="badge b-green">выполнена</span>') + '</div>' +
+    '<div class="ev-meta">📅 ' + fmtDate(e.date_iso) + (e.due_time ? ' · ⏰ ' + esc(e.due_time) : '') +
+    (overdue ? ' · <b style="color:var(--red)">просрочена</b>' : '') + '<br>' +
+    (e.assignee ? 'Ответственный: <span class="person-chip' + (e.assignee === me ? ' me' : '') + '">' + esc(e.assignee) + '</span> ' : '') +
+    (e.participants ? 'Участники: ' + String(e.participants).split(',').map(p => p.trim()).filter(Boolean).map(p => '<span class="person-chip' + (p === me ? ' me' : '') + '">' + esc(p) + '</span>').join('') : '') +
+    '<br>Добавил(а): ' + esc(e.created_by || '—') + '</div></div>';
+}
+function renderUpcoming() {
+  const today = todayIso();
+  const me = (state.session || {}).name || '';
+  const sortByDate = (a, b) => (String(a.date_iso) + (a.due_time || '')).localeCompare(String(b.date_iso) + (b.due_time || ''));
+  const up = state.cal.events.filter(e => e.status === 'открыта' && String(e.date_iso).slice(0, 10) >= today)
+    .sort(sortByDate).slice(0, 8);
+  document.getElementById('calUpcoming').innerHTML = up.length ? up.map(evItemHtml).join('') : '<div class="empty" style="padding:14px">Ближайших задач нет</div>';
+  const mine = state.cal.events.filter(e => e.status === 'открыта' && isMine(e, me)).sort(sortByDate).slice(0, 8);
+  document.getElementById('calMine').innerHTML = mine.length ? mine.map(evItemHtml).join('') : '<div class="empty" style="padding:14px">На вас ничего не назначено</div>';
+}
+async function evDone(id) {
+  try { await call('event_set_status', id, 'выполнена'); toast('Задача выполнена'); await loadCalendar(); }
+  catch (e) { toast(e.message, true); }
+}
+function calShift(d) {
+  state.cal.m += d;
+  if (state.cal.m < 0) { state.cal.m = 11; state.cal.y--; }
+  if (state.cal.m > 11) { state.cal.m = 0; state.cal.y++; }
+  renderCalendar();
+}
+function calToday() { const n = new Date(); state.cal.y = n.getFullYear(); state.cal.m = n.getMonth(); renderCalendar(); }
+function dayCellClick(iso) {
+  const evs = evByDate(iso);
+  if (evs.length) dayModal(iso); else eventForm(null, iso);
+}
+function dayModal(iso) {
+  const evs = evByDate(iso);
+  openModal('Задачи на ' + fmtDate(iso),
+    '<div class="row" style="margin-bottom:12px"><button type="button" class="btn btn-sm btn-primary" onclick="closeModal();eventForm(null,\'' + iso + '\')">＋ Добавить на этот день</button></div>' +
+    (evs.length ? evs.map(evItemHtml).join('') : '<div class="empty" style="padding:14px">На этот день ничего не запланировано</div>'),
+    { hideSave: true, cancelLabel: 'Закрыть' });
+}
+async function eventForm(id, presetDate) {
+  const e = id ? state.cal.events.find(x => x.id === id) : null;
+  const v = e || { date_iso: presetDate || todayIso(), status: 'открыта' };
+  if (!state.cal.users.length) { try { state.cal.users = await call('users_brief'); } catch (err) { state.cal.users = []; } }
+  const users = state.cal.users.map(u => u.name);
+  const parts = String(v.participants || '').split(',').map(s => s.trim()).filter(Boolean);
+  const opts = [{ v: '', l: '— не назначен —' }].concat(users.map(n => ({ v: n, l: n })));
+  const canDelete = e && ((state.session || {}).role === 'admin' || e.created_by === (state.session || {}).name);
+  openModal(id ? 'Задача — редактирование' : 'Новая задача',
+    '<div class="form-grid">' + fieldsHtml([
+      { name: 'id', type: 'hidden', value: v.id || '' },
+      { name: 'title', label: 'Задача / событие *', wide: true, value: v.title || '', placeholder: 'Например: созвон с клиентом по оригиналам отчётности' },
+      { name: 'date_iso', label: 'Дата *', type: 'date', value: String(v.date_iso || '').slice(0, 10) },
+      { name: 'due_time', label: 'Время / дедлайн', type: 'time', value: v.due_time || '', hint: 'Необязательно, например 14:30' },
+      { name: 'assignee', label: 'Ответственный', type: 'select', options: opts, value: v.assignee || '' },
+      { name: 'status', label: 'Статус', type: 'select', options: ['открыта', 'выполнена'], value: v.status || 'открыта' },
+      { name: 'description', label: 'Описание', type: 'textarea', wide: true, value: v.description || '' },
+    ]) + '</div>' +
+    '<div class="field"><label>Участники</label><div style="max-height:130px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px">' +
+    (users.length ? users.map(n => '<label class="checkline" style="padding:5px 8px;margin-bottom:3px;border:none"><input type="checkbox" class="evPart" value="' + esc(n) + '"' +
+      (parts.includes(n) ? ' checked' : '') + '> ' + esc(n) + '</label>').join('') : '<span class="sub">Нет других пользователей</span>') +
+    '</div></div>' +
+    (e ? '<div class="hint">Добавил(а): ' + esc(e.created_by || '—') + ' · ' + esc(String(e.created_at || '').slice(0, 16)) + '</div>' : '') +
+    (canDelete ? '<div class="row" style="margin-top:10px"><button type="button" class="btn btn-danger" onclick="evDelete(' + e.id + ')">🗑 Удалить задачу</button></div>' : ''),
+    {
+      wide: true,
+      onSave: async (vals) => {
+        vals.participants = Array.from(document.querySelectorAll('.evPart:checked')).map(x => x.value).join(', ');
+        await call('event_save', vals);
+        toast('Задача сохранена');
+        await loadCalendar();
+      }
+    });
+}
+async function evDelete(id) {
+  if (!confirm('Удалить задачу?')) return;
+  try { await call('event_delete', id); closeModal(); toast('Задача удалена'); await loadCalendar(); }
+  catch (e) { toast(e.message, true); }
+}
+
+/* ============ АДМИНИСТРИРОВАНИЕ ============ */
+const ACTION_RU = {
+  login: 'Вход', login_failed: 'Неудачный вход', logout: 'Выход',
+  client_create: 'Создан клиент', client_update: 'Изменён клиент',
+  contact_create: 'Добавлен контакт', contact_update: 'Изменён контакт', contact_delete: 'Удалён контакт',
+  contract_create: 'Создан договор', contract_update: 'Изменён договор',
+  doc_generate: 'Генерация документа', doc_set_status: 'Статус документа',
+  doctype_create: 'Создан тип документа', doctype_update: 'Изменён тип документа',
+  template_upload: 'Загружен шаблон',
+  workpaper_create: 'Добавлен РД', workpaper_update: 'Изменён РД', workpaper_status: 'Статус РД', workpaper_delete: 'Удалён РД',
+  event_create: 'Добавлена задача', event_update: 'Изменена задача', event_status: 'Статус задачи', event_delete: 'Удалена задача',
+  settings_save: 'Сохранены настройки', change_password: 'Сменён пароль',
+  user_create: 'Создан пользователь', user_update: 'Изменён пользователь',
+  audit_export: 'Экспорт журнала', backup: 'Создан бэкап',
+};
+function adminTab(name) {
+  document.querySelectorAll('#adminTabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.getElementById('tab-ausers').classList.toggle('active', name === 'ausers');
+  document.getElementById('tab-alog').classList.toggle('active', name === 'alog');
+}
+async function loadAdmin() {
+  if (!state.session || state.session.role !== 'admin') return;
+  state.adm.users = await call('users_list');
+  renderUsers();
+  const log = await call('audit_list', 500, '');
+  state.adm.log = log.rows || [];
+  const sel = document.getElementById('logUser');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Все пользователи</option>' + (log.users || []).map(u => '<option>' + esc(u) + '</option>').join('');
+  if (cur) sel.value = cur;
+  renderAudit();
+}
+function renderUsers() {
+  document.getElementById('usersBody').innerHTML = state.adm.users.map(u =>
+    '<tr' + (u.is_active ? '' : ' style="opacity:.55"') + '>' +
+    '<td><b>' + esc(u.login) + '</b>' + (u.login === (state.session || {}).login ? ' <span class="chip">вы</span>' : '') + '</td>' +
+    '<td>' + esc(u.name) + '</td>' +
+    '<td>' + (u.role === 'admin' ? '<span class="role-chip">админ</span>' : '<span class="role-chip user">пользователь</span>') + '</td>' +
+    '<td>' + (u.is_active ? '<span class="badge b-green">активен</span>' : '<span class="badge b-gray">отключён</span>') + '</td>' +
+    '<td class="sub">' + esc(String(u.created_at || '').slice(0, 16)) + '</td>' +
+    '<td class="sub">' + esc(u.last_login ? String(u.last_login).slice(0, 16) : 'не входил') + '</td>' +
+    '<td><button class="btn btn-sm btn-ghost" onclick="userForm(' + u.id + ')">✎</button></td></tr>').join('');
+}
+function userForm(id) {
+  const u = id ? state.adm.users.find(x => x.id === id) : null;
+  const v = u || { role: 'user', is_active: 1 };
+  const isSelf = u && u.login === (state.session || {}).login;
+  openModal(id ? 'Пользователь — редактирование' : 'Новый пользователь',
+    '<div class="form-grid">' + fieldsHtml([
+      { name: 'id', type: 'hidden', value: v.id || '' },
+      { name: 'login', label: 'Логин *', value: v.login || '', readonly: !!id },
+      { name: 'name', label: 'Имя (отображается в приложении)', value: v.name || '' },
+      { name: 'password', label: id ? 'Новый пароль (пусто — оставить текущий)' : 'Пароль * (не короче 4 символов)', type: 'password', wide: true },
+      { name: 'role', label: 'Роль', type: 'select', options: [{ v: 'user', l: 'Пользователь (всё, кроме админ-раздела)' }, { v: 'admin', l: 'Администратор' }], value: v.role || 'user' },
+      { name: 'is_active', label: 'Активен (может входить)', type: 'select', options: [{ v: '1', l: 'Да' }, { v: '0', l: 'Нет' }], value: String(v.is_active != null ? v.is_active : 1) },
+    ]) + '</div>' +
+    (isSelf ? '<div class="hint">Это ваша учётная запись: отключить себя или понизить себе роль нельзя.</div>' : ''),
+    { onSave: async (vals) => { await call('user_save', vals); toast('Пользователь сохранён'); await loadAdmin(); } });
+}
+function renderAudit() {
+  const uf = document.getElementById('logUser').value;
+  const qS = (document.getElementById('logSearch').value || '').toLowerCase().trim();
+  const rows = state.adm.log.filter(r =>
+    (!uf || r.user === uf) &&
+    (!qS || [r.user, r.action, r.object, r.details].some(v => String(v || '').toLowerCase().includes(qS))));
+  document.getElementById('logBody').innerHTML = rows.length ? rows.map(r =>
+    '<tr><td class="sub">' + esc(r.ts) + '</td><td>' + esc(r.user) + '</td>' +
+    '<td><span class="log-act">' + esc(ACTION_RU[r.action] || r.action) + '</span></td>' +
+    '<td>' + esc(r.object) + '</td><td class="sub">' + esc(r.details) + '</td></tr>').join('')
+    : '<tr><td colspan="5"><div class="empty">Записей нет</div></td></tr>';
+  document.getElementById('logCount').textContent =
+    'Показано записей: ' + rows.length + ' (последние 500). В журнал попадают входы, создание и изменение клиентов, договоров, документов, статусов, задач, настроек и пользователей.';
+}
+async function auditExport() {
+  try { const r = await call('audit_export_csv'); toast('Журнал выгружен: ' + r.path); }
+  catch (e) { toast(e.message, true); }
+}
+
 /* ============ СТАРТ ============ */
 function showFatal(msg) {
   document.getElementById('fatal').style.display = 'block';
@@ -1293,13 +1720,9 @@ function showFatal(msg) {
 async function init() {
   api = window.pywebview.api;
   try {
-    state.info = await call('app_info');
-    state.settings = await call('settings_get');
-    document.getElementById('sidebarFoot').innerHTML =
-      'DocFlow v' + esc(state.info.version) + '<br>БД: ' + esc(state.info.db) +
-      '<br>Клиентов: ' + state.info.counts.clients + ' · Документов: ' + state.info.counts.documents;
-    document.getElementById('topOrg').textContent = state.settings.executor_name_short || '';
-    await loadClients();
+    const s = await api.check_session();
+    if (s && s.logged_in) await afterLogin(s);
+    else showLogin('');
   } catch (e) { showFatal(e.message || String(e)); }
 }
 window.addEventListener('pywebviewready', init);

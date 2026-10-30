@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""База данных SQLite: схема, сиды, хелперы."""
+"""База данных SQLite: схема, сиды, миграции, хелперы, пароли, журнал."""
+import hashlib
+import secrets
 import sqlite3
 from datetime import datetime
 
@@ -47,7 +49,6 @@ CREATE TABLE IF NOT EXISTS workpapers(
   due_iso TEXT DEFAULT '', status TEXT DEFAULT 'не начат',
   note TEXT DEFAULT '', created_at TEXT, updated_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_wp_contract ON workpapers(contract_id);
 CREATE TABLE IF NOT EXISTS document_types(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT UNIQUE, name TEXT, template TEXT,
@@ -60,17 +61,42 @@ CREATE TABLE IF NOT EXISTS documents(
   number TEXT DEFAULT '', date_iso TEXT DEFAULT '',
   status TEXT DEFAULT 'готов', file_path TEXT DEFAULT '',
   params_json TEXT DEFAULT '{}',
-  created_at TEXT, updated_at TEXT, updated_by TEXT DEFAULT 'Администратор'
+  created_at TEXT, updated_at TEXT, updated_by TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS status_history(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   document_id INTEGER, status TEXT, note TEXT DEFAULT '',
-  ts TEXT, author TEXT DEFAULT 'Администратор'
+  ts TEXT, author TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS users(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  login TEXT UNIQUE NOT NULL,
+  name TEXT DEFAULT '',
+  password_hash TEXT NOT NULL,
+  role TEXT DEFAULT 'user',
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT, last_login TEXT
+);
+CREATE TABLE IF NOT EXISTS events(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT DEFAULT '', description TEXT DEFAULT '',
+  date_iso TEXT DEFAULT '', due_time TEXT DEFAULT '',
+  assignee TEXT DEFAULT '', participants TEXT DEFAULT '',
+  status TEXT DEFAULT 'открыта',
+  created_by TEXT DEFAULT '', created_at TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS audit_log(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT, user TEXT DEFAULT '', action TEXT DEFAULT '',
+  object TEXT DEFAULT '', details TEXT DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS idx_contracts_client ON contracts(client_id);
 CREATE INDEX IF NOT EXISTS idx_docs_contract ON documents(contract_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_client ON contacts(client_id);
+CREATE INDEX IF NOT EXISTS idx_wp_contract ON workpapers(contract_id);
+CREATE INDEX IF NOT EXISTS idx_events_date ON events(date_iso);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts);
 """
 
 DEFAULT_SETTINGS = {
@@ -105,6 +131,11 @@ DEFAULT_DOCTYPES = [
     ('akt', 'Акт об оказании услуг', '', 'Акт {number} от {date}.docx', 6, 0),
 ]
 
+DEFAULT_ADMIN_LOGIN = 'admin'
+DEFAULT_ADMIN_PASSWORD = '25571555'
+PBKDF2_ITERATIONS = 120000
+SEP = '$'
+
 
 def now():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -134,6 +165,37 @@ def ex(sql, params=()):
         return cur.lastrowid
 
 
+# ---------- пароли ----------
+
+def hash_password(pw):
+    salt = secrets.token_hex(8)
+    dk = hashlib.pbkdf2_hmac('sha256', (pw or '').encode('utf-8'),
+                             salt.encode('utf-8'), PBKDF2_ITERATIONS).hex()
+    return salt + SEP + dk
+
+
+def verify_password(pw, stored):
+    try:
+        salt, _, h = (stored or '').partition(SEP)
+        if not salt or not h:
+            return False
+        dk = hashlib.pbkdf2_hmac('sha256', (pw or '').encode('utf-8'),
+                                 salt.encode('utf-8'), PBKDF2_ITERATIONS).hex()
+        return secrets.compare_digest(dk, h)
+    except Exception:
+        return False
+
+
+# ---------- журнал ----------
+
+def log_action(user, action, obj='', details=''):
+    try:
+        ex('INSERT INTO audit_log(ts,user,action,object,details) VALUES(?,?,?,?,?)',
+           (now(), user or '', action, obj or '', details or ''))
+    except Exception:
+        pass
+
+
 def init_db():
     ensure_dirs()
     with conn() as c:
@@ -150,6 +212,13 @@ def init_db():
                 c.execute(
                     'INSERT INTO document_types(code,name,template,filename_mask,sort,is_active)'
                     ' VALUES(?,?,?,?,?,?)', (code, name, tpl, mask, sort, act))
+        # администратор по умолчанию — если пользователей ещё нет
+        if not c.execute('SELECT 1 FROM users LIMIT 1').fetchone():
+            c.execute(
+                'INSERT INTO users(login,name,password_hash,role,is_active,created_at)'
+                ' VALUES(?,?,?,?,1,?)',
+                (DEFAULT_ADMIN_LOGIN, 'Администратор',
+                 hash_password(DEFAULT_ADMIN_PASSWORD), 'admin', now()))
         _migrate(c)
         c.commit()
 
@@ -215,3 +284,6 @@ if __name__ == '__main__':
     print('DB init ok:', DB_PATH)
     print('settings keys:', len(settings_dict()))
     print('doctypes:', [r['name'] for r in q('SELECT name FROM document_types ORDER BY sort')])
+    print('users:', [r['login'] for r in q('SELECT login FROM users')])
+    h = hash_password('25571555')
+    print('password check:', verify_password('25571555', h), verify_password('bad', h))

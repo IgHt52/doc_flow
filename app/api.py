@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""API для моста pywebview <-> интерфейс. Все методы возвращают JSON-совместимые данные."""
+"""API для моста pywebview <-> интерфейс. Сессии пользователей, журнал, календарь."""
+import csv
 import functools
 import json
 import os
@@ -29,6 +30,8 @@ CONTRACT_FIELDS = ['number', 'date_iso', 'city', 'work_type', 'subject', 'year',
 
 CONTACT_FIELDS = ['role', 'fio', 'position', 'phone', 'email']
 
+EVENT_STATUSES = ['открыта', 'выполнена']
+
 
 def api_method(fn):
     @functools.wraps(fn)
@@ -38,6 +41,26 @@ def api_method(fn):
         except Exception as e:
             traceback.print_exc()
             return {'error': f'{type(e).__name__}: {e}'}
+    return wrapper
+
+
+def require_user(fn):
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        if not self._user:
+            return {'error': 'Требуется вход в приложение', 'auth': True}
+        return fn(self, *args, **kwargs)
+    return wrapper
+
+
+def require_admin(fn):
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        if not self._user:
+            return {'error': 'Требуется вход в приложение', 'auth': True}
+        if self._user.get('role') != 'admin':
+            return {'error': 'Требуются права администратора'}
+        return fn(self, *args, **kwargs)
     return wrapper
 
 
@@ -64,12 +87,159 @@ def _as_int(data, key, default=None):
 class Api:
     def __init__(self):
         self._window = None
+        self._user = None
         db.init_db()
 
     def set_window(self, window):
         self._window = window
 
-    # ---------- общая информация ----------
+    # ================= сессия / авторизация =================
+
+    def _name(self):
+        if not self._user:
+            return 'Не авторизован'
+        return self._user.get('name') or self._user.get('login') or '?'
+
+    def _log(self, action, obj='', details=''):
+        db.log_action(self._name(), action, obj, details)
+
+    @api_method
+    def check_session(self):
+        if self._user:
+            return {'logged_in': True, **self._user}
+        return {'logged_in': False}
+
+    @api_method
+    def login(self, user_login, password):
+        u = db.q1('SELECT * FROM users WHERE login=?', ((user_login or '').strip(),))
+        if not u or not int(u['is_active']) or not db.verify_password(password or '', u['password_hash']):
+            db.log_action((user_login or '?').strip(), 'login_failed', '',
+                          'Неверный логин или пароль' + ('' if (u and int(u['is_active'])) else ' (или пользователь отключён)'))
+            return {'error': 'Неверный логин или пароль'}
+        self._user = {'id': u['id'], 'login': u['login'],
+                      'name': u['name'] or u['login'], 'role': u['role']}
+        db.ex('UPDATE users SET last_login=? WHERE id=?', (db.now(), u['id']))
+        self._log('login', '', f"Вход в приложение (роль: {u['role']})")
+        return {'logged_in': True, **self._user}
+
+    @api_method
+    def logout(self):
+        if self._user:
+            self._log('logout')
+        self._user = None
+        return {'ok': True}
+
+    @api_method
+    @require_user
+    def change_password(self, old_password, new_password):
+        u = db.q1('SELECT * FROM users WHERE id=?', (self._user['id'],))
+        if not u or not db.verify_password(old_password or '', u['password_hash']):
+            return {'error': 'Текущий пароль указан неверно'}
+        if len(new_password or '') < 4:
+            return {'error': 'Новый пароль должен быть не короче 4 символов'}
+        db.ex('UPDATE users SET password_hash=? WHERE id=?',
+              (db.hash_password(new_password), self._user['id']))
+        self._log('change_password', self._user['login'], 'Пароль изменён')
+        return {'ok': True}
+
+    @api_method
+    @require_user
+    def users_brief(self):
+        """Активные пользователи для выпадашек (ответственные, участники)."""
+        return [{'id': u['id'], 'name': u['name'] or u['login'], 'login': u['login']}
+                for u in db.q('SELECT * FROM users WHERE is_active=1 ORDER BY name COLLATE NOCASE')]
+
+    # ================= пользователи (админ) =================
+
+    @api_method
+    @require_admin
+    def users_list(self):
+        return db.q('SELECT id, login, name, role, is_active, created_at, last_login '
+                    'FROM users ORDER BY (role != "admin"), name COLLATE NOCASE')
+
+    @api_method
+    @require_admin
+    def user_save(self, data):
+        data = data or {}
+        uid = _as_int(data, 'id')
+        login = (data.get('login') or '').strip()
+        name = (data.get('name') or '').strip()
+        password = data.get('password') or ''
+        role = 'admin' if data.get('role') == 'admin' else 'user'
+        is_active = 0 if data.get('is_active') in (0, '0', False, 'false') else 1
+        if not login:
+            return {'error': 'Укажите логин'}
+        if uid:
+            cur = db.q1('SELECT * FROM users WHERE id=?', (uid,))
+            if not cur:
+                return {'error': 'Пользователь не найден'}
+            # защита от самоблокировки
+            if cur['id'] == self._user['id']:
+                if not is_active:
+                    return {'error': 'Нельзя отключить собственную учётную запись'}
+                if role != 'admin':
+                    return {'error': 'Нельзя понизить собственную роль'}
+            dup = db.q1('SELECT id FROM users WHERE login=? AND id != ?', (login, uid))
+            if dup:
+                return {'error': f'Логин «{login}» уже занят'}
+            db.ex('UPDATE users SET login=?, name=?, role=?, is_active=? WHERE id=?',
+                  (login, name or login, role, is_active, uid))
+            if password:
+                if len(password) < 4:
+                    return {'error': 'Пароль должен быть не короче 4 символов'}
+                db.ex('UPDATE users SET password_hash=? WHERE id=?',
+                      (db.hash_password(password), uid))
+            self._log('user_update', login,
+                      f"Изменён пользователь: роль={role}, активен={'да' if is_active else 'нет'}"
+                      + (', пароль сброшен' if password else ''))
+        else:
+            if db.q1('SELECT id FROM users WHERE login=?', (login,)):
+                return {'error': f'Логин «{login}» уже занят'}
+            if len(password) < 4:
+                return {'error': 'Пароль должен быть не короче 4 символов'}
+            uid = db.ex('INSERT INTO users(login,name,password_hash,role,is_active,created_at)'
+                        ' VALUES(?,?,?,?,?,?)',
+                        (login, name or login, db.hash_password(password), role,
+                         is_active, db.now()))
+            self._log('user_create', login, f'Создан пользователь: роль={role}')
+        return {'ok': True, 'id': uid}
+
+    # ================= журнал (админ) =================
+
+    @api_method
+    @require_admin
+    def audit_list(self, limit=500, user=''):
+        sql = ('SELECT id, ts, user, action, object, details FROM audit_log')
+        params = []
+        if user:
+            sql += ' WHERE user=?'
+            params.append(user)
+        sql += ' ORDER BY id DESC LIMIT ?'
+        params.append(int(limit or 500))
+        rows = db.q(sql, tuple(params))
+        users = [r['user'] for r in db.q('SELECT DISTINCT user FROM audit_log ORDER BY user')]
+        return {'rows': rows, 'users': users}
+
+    @api_method
+    @require_admin
+    def audit_export_csv(self):
+        BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+        out = BACKUPS_DIR / f'журнал_{ts}.csv'
+        rows = db.q('SELECT ts, user, action, object, details FROM audit_log ORDER BY id')
+        with open(out, 'w', newline='', encoding='utf-8-sig') as f:
+            w = csv.writer(f, delimiter=';')
+            w.writerow(['Дата/время', 'Пользователь', 'Действие', 'Объект', 'Подробности'])
+            for r in rows:
+                w.writerow([r['ts'], r['user'], r['action'], r['object'], r['details']])
+        self._log('audit_export', '', str(out))
+        try:
+            open_path(out)
+        except Exception:
+            pass
+        return {'ok': True, 'path': str(out), 'rows': len(rows)}
+
+    # ================= общая информация =================
 
     @api_method
     def app_info(self):
@@ -87,9 +257,10 @@ class Api:
             },
         }
 
-    # ---------- клиенты ----------
+    # ================= клиенты =================
 
     @api_method
+    @require_user
     def clients_list(self):
         clients = db.q('SELECT * FROM clients ORDER BY name_short COLLATE NOCASE')
         result = []
@@ -129,6 +300,7 @@ class Api:
         return result
 
     @api_method
+    @require_user
     def client_get(self, cid):
         client = db.q1('SELECT * FROM clients WHERE id=?', (cid,))
         if not client:
@@ -139,6 +311,7 @@ class Api:
         return {'client': client, 'contacts': contacts, 'contracts': contracts}
 
     @api_method
+    @require_user
     def client_save(self, data):
         data = data or {}
         name_full = (data.get('name_full') or '').strip()
@@ -151,20 +324,24 @@ class Api:
                   for f in CLIENT_FIELDS}
         if not values.get('folder'):
             values['folder'] = gen.sanitize_folder(name_short or name_full)
+        display = values.get('name_short') or name_full
         if cid:
             sets = ', '.join(f'{f}=?' for f in CLIENT_FIELDS)
             db.ex(f'UPDATE clients SET {sets} WHERE id=?',
                   tuple(values[f] for f in CLIENT_FIELDS) + (cid,))
+            self._log('client_update', display, f'Изменён клиент (id={cid})')
         else:
             cols = ', '.join(CLIENT_FIELDS)
             ph = ', '.join('?' * len(CLIENT_FIELDS))
             cid = db.ex(f'INSERT INTO clients({cols}, created_at) VALUES({ph}, ?)',
                         tuple(values[f] for f in CLIENT_FIELDS) + (db.now(),))
+            self._log('client_create', display, f'Создан клиент (id={cid})')
         folder_path = gen.client_folder_path(values)
         folder_path.mkdir(parents=True, exist_ok=True)
         return {'ok': True, 'id': cid, 'folder': str(folder_path)}
 
     @api_method
+    @require_user
     def client_open_folder(self, cid):
         c = db.q1('SELECT * FROM clients WHERE id=?', (cid,))
         if not c:
@@ -174,9 +351,10 @@ class Api:
         open_path(p)
         return {'ok': True}
 
-    # ---------- контакты ----------
+    # ================= контакты =================
 
     @api_method
+    @require_user
     def contact_save(self, data):
         data = data or {}
         client_id = _as_int(data, 'client_id')
@@ -190,26 +368,33 @@ class Api:
             sets = ', '.join(f'{f}=?' for f in CONTACT_FIELDS)
             db.ex(f'UPDATE contacts SET {sets} WHERE id=? AND client_id=?',
                   tuple(values[f] for f in CONTACT_FIELDS) + (cid, client_id))
+            self._log('contact_update', values['fio'], f'Изменён контакт (id={cid})')
         else:
             cols = ', '.join(['client_id'] + CONTACT_FIELDS)
             ph = ', '.join('?' * (len(CONTACT_FIELDS) + 1))
             cid = db.ex(f'INSERT INTO contacts({cols}) VALUES({ph})',
                         (client_id,) + tuple(values[f] for f in CONTACT_FIELDS))
+            self._log('contact_create', values['fio'], f'Добавлен контакт ({values["role"]})')
         return {'ok': True, 'id': cid}
 
     @api_method
+    @require_user
     def contact_delete(self, contact_id):
+        c = db.q1('SELECT * FROM contacts WHERE id=?', (contact_id,))
         db.ex('DELETE FROM contacts WHERE id=?', (contact_id,))
+        self._log('contact_delete', (c or {}).get('fio', ''), f'Удалён контакт (id={contact_id})')
         return {'ok': True}
 
-    # ---------- договоры ----------
+    # ================= договоры =================
 
     @api_method
+    @require_user
     def contract_get(self, contract_id):
         return db.q1('SELECT * FROM contracts WHERE id=?', (contract_id,)) or \
             {'error': 'Договор не найден'}
 
     @api_method
+    @require_user
     def contract_save(self, data):
         data = data or {}
         client_id = _as_int(data, 'client_id')
@@ -243,13 +428,16 @@ class Api:
             wt = values.get('work_type') or 'Аудит'
             values['subject'] = (f'{wt} за {values["year"]} год' if wt == 'Аудит'
                                  else f'{wt} ({values["year"]})')
-        if not (values.get('number') or '').strip():
+        new_number = not (values.get('number') or '').strip()
+        if new_number:
             values['number'] = self._suggest_number(values['year'])
             db.bump_seq_from_number(values['number'])
         if cid:
             sets = ', '.join(f'{f}=?' for f in CONTRACT_FIELDS)
             db.ex(f'UPDATE contracts SET {sets} WHERE id=?',
                   tuple(values[f] for f in CONTRACT_FIELDS) + (cid,))
+            self._log('contract_update', values['number'],
+                      f'Изменён договор (id={cid}, {gen.fmt_dot(values.get("date_iso"))})')
         else:
             cols = ', '.join(['client_id'] + CONTRACT_FIELDS)
             ph = ', '.join('?' * (len(CONTRACT_FIELDS) + 1))
@@ -258,6 +446,9 @@ class Api:
             if (values.get('city') or '') == '':
                 db.ex('UPDATE contracts SET city=? WHERE id=?',
                       (db.setting('city_default', 'Красноярск'), cid))
+            self._log('contract_create', values['number'],
+                      f'Создан договор (id={cid}, {gen.fmt_dot(values.get("date_iso"))}'
+                      + ', номер автоматически' if new_number else ')')
         return {'ok': True, 'id': cid, 'number': values['number']}
 
     def _suggest_number(self, year):
@@ -270,101 +461,41 @@ class Api:
         return mask.replace('{seq}', str(seq)).replace('{yy}', yy)
 
     @api_method
+    @require_user
     def suggest_number(self, year=None):
         return self._suggest_number(year)
 
-    # ---------- склонение ФИО / сроки ----------
+    # ================= склонение ФИО / сроки =================
 
     @api_method
+    @require_user
     def inflect_fio(self, fio):
         import declension
         return declension.inflect(fio)
 
     @api_method
+    @require_user
     def calc_originals_deadline(self, opinion_iso):
         """Дата оригиналов отчётности = 5 рабочих дней до выдачи АЗ."""
         return gen.minus_workdays(opinion_iso, 5)
 
     @api_method
+    @require_user
     def contracts_all(self):
         return db.q("""SELECT ct.id, ct.number, ct.date_iso, ct.year, ct.status,
                               ct.client_id, c.name_short client_name, c.name_full
                        FROM contracts ct JOIN clients c ON c.id = ct.client_id
                        ORDER BY c.name_short COLLATE NOCASE, ct.date_iso DESC""")
 
-    # ---------- рабочие документы (таблица готовности) ----------
+    # ================= типы документов / шаблоны =================
 
     @api_method
-    def workpapers_list(self, contract_id=None):
-        sql = """SELECT w.*, ct.number contract_number, ct.year contract_year,
-                        c.name_short client_name, c.id client_id
-                 FROM workpapers w
-                 LEFT JOIN contracts ct ON ct.id = w.contract_id
-                 LEFT JOIN clients c ON c.id = ct.client_id"""
-        params = ()
-        if contract_id:
-            sql += ' WHERE w.contract_id=?'
-            params = (contract_id,)
-        sql += " ORDER BY (w.status='принят'), w.due_iso='', w.due_iso, w.id"
-        return db.q(sql, params)
-
-    @api_method
-    def workpaper_save(self, data):
-        data = data or {}
-        title = (data.get('title') or '').strip()
-        if not title:
-            return {'error': 'Укажите название рабочего документа'}
-        contract_id = _as_int(data, 'contract_id')
-        if not contract_id:
-            return {'error': 'Выберите договор'}
-        status = (data.get('status') or 'не начат').strip()
-        if status not in WP_STATUSES:
-            status = 'не начат'
-        wid = _as_int(data, 'id')
-        vals = (contract_id, title,
-                (data.get('assistant') or '').strip(),
-                (data.get('reviewer') or '').strip(),
-                (data.get('due_iso') or '').strip(),
-                status, (data.get('note') or '').strip())
-        now = db.now()
-        if wid:
-            db.ex('UPDATE workpapers SET contract_id=?, title=?, assistant=?, reviewer=?, '
-                  'due_iso=?, status=?, note=?, updated_at=? WHERE id=?',
-                  vals + (now, wid))
-        else:
-            wid = db.ex('INSERT INTO workpapers(contract_id,title,assistant,reviewer,'
-                        'due_iso,status,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',
-                        vals + (now, now))
-        return {'ok': True, 'id': wid}
-
-    @api_method
-    def workpaper_set_status(self, wp_id, status):
-        if status not in WP_STATUSES:
-            return {'error': f'Неизвестный статус: {status}'}
-        r = db.ex('UPDATE workpapers SET status=?, updated_at=? WHERE id=?',
-                  (status, db.now(), wp_id))
-        return {'ok': True}
-
-    @api_method
-    def workpaper_delete(self, wp_id):
-        db.ex('DELETE FROM workpapers WHERE id=?', (wp_id,))
-        return {'ok': True}
-
-    @api_method
-    def workpaper_people(self):
-        a = [r['assistant'] for r in
-             db.q("SELECT DISTINCT assistant FROM workpapers WHERE assistant != '' ORDER BY assistant")]
-        rv = [r['reviewer'] for r in
-              db.q("SELECT DISTINCT reviewer FROM workpapers WHERE reviewer != '' ORDER BY reviewer")]
-        return {'assistants': a, 'reviewers': rv}
-
-    # ---------- типы документов / шаблоны ----------
-
-    @api_method
+    @require_user
     def doctypes_list(self):
         return db.q('SELECT * FROM document_types ORDER BY sort, id')
 
     @api_method
+    @require_user
     def doctype_save(self, data):
         data = data or {}
         did = _as_int(data, 'id')
@@ -384,15 +515,18 @@ class Api:
             db.ex('UPDATE document_types SET code=?, name=?, template=?, filename_mask=?, '
                   'sort=?, is_active=? WHERE id=?',
                   (code, name, template, mask, sort, is_active, did))
+            self._log('doctype_update', name, f'Изменён тип документа (id={did})')
         else:
             dup = db.q1('SELECT id FROM document_types WHERE code=?', (code,))
             if dup:
                 return {'error': f'Тип с кодом «{code}» уже существует'}
             did = db.ex('INSERT INTO document_types(code,name,template,filename_mask,sort,is_active)'
                         ' VALUES(?,?,?,?,?,?)', (code, name, template, mask, sort, is_active))
+            self._log('doctype_create', name, f'Создан тип документа (id={did})')
         return {'ok': True, 'id': did}
 
     @api_method
+    @require_user
     def pick_template_file(self):
         """Файловый диалог: выбрать .docx и скопировать в папку шаблонов."""
         if not self._window:
@@ -409,11 +543,13 @@ class Api:
         TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
         dst = TEMPLATES_DIR / src.name
         shutil.copy2(str(src), str(dst))
+        self._log('template_upload', src.name, 'Файл шаблона скопирован в app\\templates')
         return {'ok': True, 'name': src.name, 'path': str(dst)}
 
-    # ---------- документы ----------
+    # ================= документы =================
 
     @api_method
+    @require_user
     def contract_documents(self, contract_id):
         types = db.q('SELECT * FROM document_types ORDER BY sort, id')
         docs = {d['type_id']: d for d in
@@ -430,6 +566,7 @@ class Api:
         return rows
 
     @api_method
+    @require_user
     def doc_generate(self, contract_id, type_id):
         contract = db.q1('SELECT * FROM contracts WHERE id=?', (contract_id,))
         if not contract:
@@ -444,7 +581,6 @@ class Api:
             return {'error': f'Тип «{dtype["name"]}» отключён или шаблон не загружен'}
         settings = db.settings_dict()
 
-        # авто-номер, если договор ещё без номера
         if not (contract['number'] or '').strip():
             contract['number'] = self._suggest_number(contract['year'])
             db.ex('UPDATE contracts SET number=? WHERE id=?', (contract['number'], contract['id']))
@@ -456,6 +592,7 @@ class Api:
             rel = str(out)
 
         now = db.now()
+        author = self._name()
         existing = db.q1('SELECT id FROM documents WHERE contract_id=? AND type_id=?',
                          (contract_id, type_id))
         if existing:
@@ -464,7 +601,7 @@ class Api:
                   'params_json=?, updated_at=?, updated_by=? WHERE id=?',
                   (contract['number'], contract['date_iso'], 'готов', rel,
                    json.dumps(dict(contract), ensure_ascii=False, default=str),
-                   now, 'Администратор', doc_id))
+                   now, author, doc_id))
             note = 'перегенерирован из шаблона'
         else:
             doc_id = db.ex('INSERT INTO documents(contract_id,type_id,number,date_iso,status,'
@@ -473,16 +610,19 @@ class Api:
                            (contract_id, type_id, contract['number'], contract['date_iso'],
                             'готов', rel,
                             json.dumps(dict(contract), ensure_ascii=False, default=str),
-                            now, now, 'Администратор'))
+                            now, now, author))
             note = 'создан из шаблона'
         db.ex('INSERT INTO status_history(document_id,status,note,ts,author) VALUES(?,?,?,?,?)',
-              (doc_id, 'готов', note, now, 'Администратор'))
+              (doc_id, 'готов', note, now, author))
         db.bump_seq_from_number(contract['number'])
+        self._log('doc_generate', f'{dtype["name"]} {contract["number"]}',
+                  f'{note}: {rel}')
         return {'ok': True, 'doc_id': doc_id, 'file': str(out), 'name': out.name,
                 'number': contract['number'],
                 'date_display': gen.fmt_dot(contract['date_iso'])}
 
     @api_method
+    @require_user
     def doc_set_status(self, doc_id, status):
         if status not in STATUS_ORDER:
             return {'error': f'Неизвестный статус: {status}'}
@@ -490,17 +630,22 @@ class Api:
         if not d:
             return {'error': 'Документ не найден'}
         now = db.now()
+        author = self._name()
         db.ex('UPDATE documents SET status=?, updated_at=?, updated_by=? WHERE id=?',
-              (status, now, 'Администратор', doc_id))
+              (status, now, author, doc_id))
         db.ex('INSERT INTO status_history(document_id,status,note,ts,author) VALUES(?,?,?,?,?)',
-              (doc_id, status, f'статус изменён с «{d["status"]}»', now, 'Администратор'))
+              (doc_id, status, f'статус изменён с «{d["status"]}»', now, author))
+        self._log('doc_set_status', f'{d["number"]}',
+                  f'Статус документа (id={doc_id}): «{d["status"]}» → «{status}»')
         return {'ok': True}
 
     @api_method
+    @require_user
     def doc_history(self, doc_id):
         return db.q('SELECT * FROM status_history WHERE document_id=? ORDER BY id DESC', (doc_id,))
 
     @api_method
+    @require_user
     def doc_open(self, doc_id):
         d = db.q1('SELECT * FROM documents WHERE id=?', (doc_id,))
         if not d or not d['file_path']:
@@ -512,6 +657,7 @@ class Api:
         return {'ok': True}
 
     @api_method
+    @require_user
     def doc_open_folder(self, doc_id):
         d = db.q1('SELECT * FROM documents WHERE id=?', (doc_id,))
         if not d or not d['file_path']:
@@ -522,9 +668,10 @@ class Api:
         open_path(p)
         return {'ok': True}
 
-    # ---------- матрица ----------
+    # ================= матрица =================
 
     @api_method
+    @require_user
     def matrix(self, year=None):
         types = db.q('SELECT * FROM document_types ORDER BY sort, id')
         rows = db.q("""SELECT c.id client_id, c.name_short, c.name_full,
@@ -553,7 +700,6 @@ class Api:
                 'work_type': r['work_type'], 'contract_status': r['contract_status'],
                 'cells': cells,
             })
-        # клиенты без договоров — отдельной строкой
         if not year or str(year) == 'all':
             with_contracts = {r['client_id'] for r in rows}
             for c in db.q('SELECT id, name_short, name_full FROM clients'):
@@ -567,9 +713,157 @@ class Api:
                     })
         return {'years': years, 'types': types, 'rows': out_rows}
 
-    # ---------- репозиторий ----------
+    # ================= рабочие документы =================
 
     @api_method
+    @require_user
+    def workpapers_list(self, contract_id=None):
+        sql = """SELECT w.*, ct.number contract_number, ct.year contract_year,
+                        c.name_short client_name, c.id client_id
+                 FROM workpapers w
+                 LEFT JOIN contracts ct ON ct.id = w.contract_id
+                 LEFT JOIN clients c ON c.id = ct.client_id"""
+        params = ()
+        if contract_id:
+            sql += ' WHERE w.contract_id=?'
+            params = (contract_id,)
+        sql += " ORDER BY (w.status='принят'), w.due_iso='', w.due_iso, w.id"
+        return db.q(sql, params)
+
+    @api_method
+    @require_user
+    def workpaper_save(self, data):
+        data = data or {}
+        title = (data.get('title') or '').strip()
+        if not title:
+            return {'error': 'Укажите название рабочего документа'}
+        contract_id = _as_int(data, 'contract_id')
+        if not contract_id:
+            return {'error': 'Выберите договор'}
+        status = (data.get('status') or 'не начат').strip()
+        if status not in WP_STATUSES:
+            status = 'не начат'
+        wid = _as_int(data, 'id')
+        vals = (contract_id, title,
+                (data.get('assistant') or '').strip(),
+                (data.get('reviewer') or '').strip(),
+                (data.get('due_iso') or '').strip(),
+                status, (data.get('note') or '').strip())
+        now = db.now()
+        if wid:
+            db.ex('UPDATE workpapers SET contract_id=?, title=?, assistant=?, reviewer=?, '
+                  'due_iso=?, status=?, note=?, updated_at=? WHERE id=?',
+                  vals + (now, wid))
+            self._log('workpaper_update', title, f'Изменён рабочий документ (id={wid})')
+        else:
+            wid = db.ex('INSERT INTO workpapers(contract_id,title,assistant,reviewer,'
+                        'due_iso,status,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',
+                        vals + (now, now))
+            self._log('workpaper_create', title,
+                      f'Добавлен рабочий документ: {vals[2] or "—"} / контроль {vals[3] or "—"}')
+        return {'ok': True, 'id': wid}
+
+    @api_method
+    @require_user
+    def workpaper_set_status(self, wp_id, status):
+        if status not in WP_STATUSES:
+            return {'error': f'Неизвестный статус: {status}'}
+        w = db.q1('SELECT title FROM workpapers WHERE id=?', (wp_id,))
+        db.ex('UPDATE workpapers SET status=?, updated_at=? WHERE id=?',
+              (status, db.now(), wp_id))
+        self._log('workpaper_status', (w or {}).get('title', ''), f'Статус РД (id={wp_id}): {status}')
+        return {'ok': True}
+
+    @api_method
+    @require_user
+    def workpaper_delete(self, wp_id):
+        w = db.q1('SELECT title FROM workpapers WHERE id=?', (wp_id,))
+        db.ex('DELETE FROM workpapers WHERE id=?', (wp_id,))
+        self._log('workpaper_delete', (w or {}).get('title', ''), f'Удалён РД (id={wp_id})')
+        return {'ok': True}
+
+    @api_method
+    @require_user
+    def workpaper_people(self):
+        a = [r['assistant'] for r in
+             db.q("SELECT DISTINCT assistant FROM workpapers WHERE assistant != '' ORDER BY assistant")]
+        rv = [r['reviewer'] for r in
+              db.q("SELECT DISTINCT reviewer FROM workpapers WHERE reviewer != '' ORDER BY reviewer")]
+        return {'assistants': a, 'reviewers': rv}
+
+    # ================= календарь-планер =================
+
+    @api_method
+    @require_user
+    def events_list(self):
+        return db.q('SELECT * FROM events ORDER BY date_iso, due_time, id')
+
+    @api_method
+    @require_user
+    def event_save(self, data):
+        data = data or {}
+        title = (data.get('title') or '').strip()
+        if not title:
+            return {'error': 'Укажите название задачи'}
+        date_iso = (data.get('date_iso') or '').strip()
+        if not gen.parse_iso(date_iso):
+            return {'error': 'Укажите дату задачи'}
+        status = (data.get('status') or 'открыта').strip()
+        if status not in EVENT_STATUSES:
+            status = 'открыта'
+        eid = _as_int(data, 'id')
+        vals = (title,
+                (data.get('description') or '').strip(),
+                date_iso,
+                (data.get('due_time') or '').strip(),
+                (data.get('assignee') or '').strip(),
+                (data.get('participants') or '').strip(),
+                status)
+        now = db.now()
+        if eid:
+            db.ex('UPDATE events SET title=?, description=?, date_iso=?, due_time=?, '
+                  'assignee=?, participants=?, status=?, updated_at=? WHERE id=?',
+                  vals + (now, eid))
+            self._log('event_update', title, f'Изменена задача на {gen.fmt_dot(date_iso)} (id={eid})')
+        else:
+            eid = db.ex('INSERT INTO events(title,description,date_iso,due_time,assignee,'
+                        'participants,status,created_by,created_at,updated_at) '
+                        'VALUES(?,?,?,?,?,?,?,?,?,?)',
+                        vals + (self._name(), now, now))
+            self._log('event_create', title,
+                      f'Добавлена задача на {gen.fmt_dot(date_iso)}'
+                      + (f', время {vals[3]}' if vals[3] else '')
+                      + (f', ответственный {vals[4]}' if vals[4] else ''))
+        return {'ok': True, 'id': eid}
+
+    @api_method
+    @require_user
+    def event_set_status(self, event_id, status):
+        if status not in EVENT_STATUSES:
+            return {'error': f'Неизвестный статус: {status}'}
+        e = db.q1('SELECT title, date_iso FROM events WHERE id=?', (event_id,))
+        if not e:
+            return {'error': 'Задача не найдена'}
+        db.ex('UPDATE events SET status=?, updated_at=? WHERE id=?', (status, db.now(), event_id))
+        self._log('event_status', e['title'], f'Статус задачи (id={event_id}): {status}')
+        return {'ok': True}
+
+    @api_method
+    @require_user
+    def event_delete(self, event_id):
+        e = db.q1('SELECT * FROM events WHERE id=?', (event_id,))
+        if not e:
+            return {'error': 'Задача не найдена'}
+        if self._user.get('role') != 'admin' and e['created_by'] != self._name():
+            return {'error': 'Удалить задачу может только её автор или администратор'}
+        db.ex('DELETE FROM events WHERE id=?', (event_id,))
+        self._log('event_delete', e['title'], f'Удалена задача (id={event_id})')
+        return {'ok': True}
+
+    # ================= репозиторий =================
+
+    @api_method
+    @require_user
     def repo_tree(self):
         CLIENTS_DIR.mkdir(parents=True, exist_ok=True)
         tree = []
@@ -581,6 +875,7 @@ class Api:
         return tree
 
     @api_method
+    @require_user
     def repo_files(self, rel=''):
         base = (CLIENTS_DIR / (rel or '')).resolve()
         try:
@@ -602,6 +897,7 @@ class Api:
         return {'rel': rel, 'files': files}
 
     @api_method
+    @require_user
     def repo_open(self, rel=''):
         base = (CLIENTS_DIR / (rel or '')).resolve()
         try:
@@ -613,6 +909,7 @@ class Api:
         return {'ok': True}
 
     @api_method
+    @require_user
     def repo_open_file(self, rel):
         p = (CLIENTS_DIR / (rel or '')).resolve()
         try:
@@ -624,15 +921,17 @@ class Api:
         open_path(p)
         return {'ok': True}
 
-    # ---------- настройки ----------
+    # ================= настройки =================
 
     @api_method
+    @require_user
     def settings_get(self):
         s = db.settings_dict()
         s['_templates_dir'] = str(TEMPLATES_DIR)
         return s
 
     @api_method
+    @require_user
     def settings_save(self, data):
         data = data or {}
         allowed = set(db.DEFAULT_SETTINGS.keys())
@@ -641,17 +940,20 @@ class Api:
             if k in allowed:
                 db.set_setting(k, v if v is not None else '')
                 saved += 1
+        self._log('settings_save', '', f'Сохранено настроек: {saved}')
         return {'ok': True, 'saved': saved}
 
     @api_method
+    @require_user
     def templates_open_folder(self):
         TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
         open_path(TEMPLATES_DIR)
         return {'ok': True}
 
-    # ---------- бэкап ----------
+    # ================= бэкап =================
 
     @api_method
+    @require_user
     def backup_now(self):
         import sqlite3
         ts = datetime.now().strftime('%Y-%m-%d_%H%M%S')
@@ -668,4 +970,5 @@ class Api:
         if TEMPLATES_DIR.exists():
             shutil.copytree(str(TEMPLATES_DIR), str(dst / 'templates'), dirs_exist_ok=True)
         size = sum(f.stat().st_size for f in dst.rglob('*') if f.is_file())
+        self._log('backup', '', f'Создан бэкап: {dst} ({round(size / 1024 / 1024, 1)} МБ)')
         return {'ok': True, 'path': str(dst), 'size_mb': round(size / 1024 / 1024, 1)}
